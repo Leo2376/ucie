@@ -1,0 +1,17 @@
+# UCIe RTL simulators / tools
+obj_dir/
+obj_dir_tb/
+simv_tb
+*.vcd
+*.fst
+*.fsdb
+*.vpd
+simv
+simv.daidir/
+csrc/
+*.log
+*.key
+work/
+transcript
+vsim.wlf
+.DS_Store
