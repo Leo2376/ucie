@@ -37,14 +37,25 @@ module rdi_up(
   wire [3:0] _GEN_38 = 3'h2 == resetSubstate ? _GEN_5 : _GEN_31;
   wire [3:0] nextState = 4'h0 == state ? _GEN_38 : _GEN_5;
   wire [2:0] _GEN_2 = state != 4'h0 & nextState == 4'h0 ? 3'h2 : resetSubstate;
+  // Bringup starts autonomously: substate 2->3 unconditionally. The old
+  // gate (wait for nextState==1, i.e. a D2D ACTIVE request) deadlocked
+  // initial bring-up, because the D2D linkinit itself waits for
+  // train==4, which waits for this exchange (substate 3 sends, 6
+  // completes on response -> state ACTIVE -> io_active). The message
+  // can only actually transmit once training reaches LinkInit anyway
+  // (sb path connected in train state 3; elsewhere ready stays low and
+  // the substate waits at 3).
   reg [1:0] stallReqAckState;
   wire  _T_5 = nextState == 4'h1;
   wire [1:0] _GEN_3 = state != 4'h1 & nextState == 4'h1 ? 2'h0 : stallReqAckState;
   wire  _T_21 = io_sbTrainIO_msgReq_ready & io_sbTrainIO_msgReq_valid;
   wire [2:0] _GEN_8 = _T_21 ? 3'h4 : _GEN_2;
   wire [2:0] _GEN_9 = _T_33 ? 3'h5 : _GEN_2;
-  wire [2:0] _GEN_10 = _T_33 ? 3'h6 : _GEN_2;
-  wire [2:0] _GEN_17 = 3'h5 == resetSubstate ? _GEN_10 : _GEN_2;
+  // Substate 5 presents the second bringup message and waits for the
+  // request handshake (_T_21): the wrapper returned to idle after the
+  // first exchange completed, so a status handshake (_T_33) can never
+  // occur here -- the old gate stuck the machine at 5 forever.
+  wire [2:0] _GEN_17 = 3'h5 == resetSubstate ? (_T_21 ? 3'h6 : 3'h5) : _GEN_2;
   wire  _GEN_18 = 3'h5 == resetSubstate ? 1'h0 : 3'h6 == resetSubstate;
   wire  _GEN_20 = 3'h4 == resetSubstate | _GEN_18;
   wire [2:0] _GEN_21 = 3'h4 == resetSubstate ? _GEN_9 : _GEN_17;
@@ -96,11 +107,7 @@ module rdi_up(
       resetSubstate <= 3'h2;
     end else if (4'h0 == state) begin
       if (3'h2 == resetSubstate) begin
-        if (_T_5) begin
-          resetSubstate <= 3'h3;
-        end else begin
-          resetSubstate <= _GEN_2;
-        end
+        resetSubstate <= 3'h3;
       end else if (3'h3 == resetSubstate) begin
         resetSubstate <= _GEN_8;
       end else begin

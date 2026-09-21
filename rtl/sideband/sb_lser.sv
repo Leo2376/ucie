@@ -24,15 +24,26 @@ module sb_lser(
   reg  sending;
   reg  waited;
   reg [6:0] sendCount;
+  // Minimum idle gap between bursts: the partner (and our own RX)
+  // detects end-of-packet from sending dropping, so back-to-back
+  // bursts need idle HCLK cycles in between. started_burst latches at
+  // accept; gap counts sending==0 cycles after sendDone.
+  reg [1:0] gap;
+  wire gap_ok = (gap == 2'h3);
   wire  wrap_wrap = sendCount == 7'h7f;
   wire [6:0] _wrap_value_T_1 = sendCount + 7'h1;
   wire  sendDone = sending & wrap_wrap;
   wire  _GEN_4 = _T | sending;
   wire  _GEN_5 = _T ? 1'h0 : waited;
+  // Ready only when fully idle: accepting mid-burst would dequeue
+  // upstream (ready=1) while the shift path ignores the load (drop).
+  // waited re-arms 32 cycles after burst start, so ~sending alone is
+  // not sufficient; gap_ok enforces idle cycles after sendDone.
+  wire  tx_idle = ~sending;
   wire [127:0] _data_T = {{1'd0}, data[127:1]};
   wire  _GEN_9 = sendDone | done;
   wire  _GEN_11 = done ? _counter_next_T : _GEN_5;
-  assign io_in_ready = waited;
+  assign io_in_ready = waited & tx_idle & gap_ok;
   assign io_out_bits = data[0];
   assign io_out_clock = sending & clock;
   always @(posedge clock) begin
@@ -65,6 +76,13 @@ module sb_lser(
       sending <= _GEN_4;
     end
     waited <= reset | _GEN_11;
+    if (reset) begin
+      gap <= 2'h0;
+    end else if (_T) begin
+      gap <= 2'h0;
+    end else if (~sending && gap != 2'h3) begin
+      gap <= gap + 2'h1;
+    end
     if (reset) begin
       sendCount <= 7'h0;
     end else if (sending) begin

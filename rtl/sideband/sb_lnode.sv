@@ -34,7 +34,11 @@ module sb_lnode(
   wire  rx_queue_io_deq_ready;
   wire  rx_queue_io_deq_valid;
   wire [127:0] rx_queue_io_deq_bits;
-  wire [69:0] tx_ser_io_in_bits_hi = {io_inner_layer_to_node_bits[127:59],1'h0};
+  // TX shifts the full 128b packet LSB-first. (There was a dropped-bit
+  // bug here: bit 58 was forced to 0, corrupting the domain field of
+  // every D2D message with [58:56]==5 (PARAM/ACTIVE/LINKRESET/DISABLE:
+  // 0500->0100 on the wire). Training packets were unaffected since
+  // their bit 58 is already 0.)
   sb_lser tx_ser (
     .clock(tx_ser_clock),
     .reset(tx_ser_reset),
@@ -70,7 +74,7 @@ module sb_lnode(
   assign tx_ser_clock = clock;
   assign tx_ser_reset = reset;
   assign tx_ser_io_in_valid = io_inner_layer_to_node_valid;
-  assign tx_ser_io_in_bits = {tx_ser_io_in_bits_hi,io_inner_layer_to_node_bits[57:0]};
+  assign tx_ser_io_in_bits = io_inner_layer_to_node_bits;
   assign rx_des_clock = clock;
   assign rx_des_reset = reset;
   assign rx_des_io_in_bits = io_outer_rx_bits;
