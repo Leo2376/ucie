@@ -5,8 +5,9 @@ TBFILELIST := filelist_tb.f
 SNIFFFILELIST := filelist_sniff.f
 LINKFILELIST := filelist_link.f
 FLITFILELIST := filelist_flit.f
+FLITPATHFILELIST := filelist_flitpath.f
 
-.PHONY: lint sim sniff link flit clean
+.PHONY: lint sim sniff link flit flit_path clean
 
 lint:
 	verilator --lint-only -f $(FILELIST) --top-module $(TOP) --timing
@@ -30,6 +31,11 @@ flit:
 	verilator --binary --timing -j 0 -f $(FLITFILELIST) --top-module flit_pack_tb \
 	  -Mdir obj_dir_flit -o simv_flit --build -Wno-TIMESCALEMOD
 	./obj_dir_flit/simv_flit
+
+flit_path:
+	verilator --binary --timing -j 0 -f $(FILELIST) -f $(FLITPATHFILELIST) --top-module flit_path_tb \
+	  -Mdir obj_dir_flitpath -o simv_flitpath --build -Wno-TIMESCALEMOD
+	./obj_dir_flitpath/simv_flitpath
 
 clean:
 	rm -rf obj_dir obj_dir_tb obj_dir_sniff *.vcd *.fst

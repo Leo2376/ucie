@@ -1,12 +1,14 @@
-module log_phy(
+module log_phy #(
+  parameter RDI_W = 64
+) (
   input         clock,
   input         reset,
   output        io_rdi_lpData_ready,
   input         io_rdi_lpData_valid,
   input         io_rdi_lpData_irdy,
-  input  [63:0] io_rdi_lpData_bits,
+  input  [RDI_W-1:0] io_rdi_lpData_bits,
   output        io_rdi_plData_valid,
-  output [63:0] io_rdi_plData_bits,
+  output [RDI_W-1:0] io_rdi_plData_bits,
   input  [3:0]  io_rdi_lpStateReq,
   input         io_rdi_lpLinkError,
   output [3:0]  io_rdi_plStateStatus,
@@ -62,9 +64,9 @@ module log_phy(
   wire  rdiDataMapper_io_rdi_lpData_ready;
   wire  rdiDataMapper_io_rdi_lpData_valid;
   wire  rdiDataMapper_io_rdi_lpData_irdy;
-  wire [63:0] rdiDataMapper_io_rdi_lpData_bits;
+  wire [RDI_W-1:0] rdiDataMapper_io_rdi_lpData_bits;
   wire  rdiDataMapper_io_rdi_plData_valid;
-  wire [63:0] rdiDataMapper_io_rdi_plData_bits;
+  wire [RDI_W-1:0] rdiDataMapper_io_rdi_plData_bits;
   wire  rdiDataMapper_io_mainbandLaneIO_txData_ready;
   wire  rdiDataMapper_io_mainbandLaneIO_txData_valid;
   wire [15:0] rdiDataMapper_io_mainbandLaneIO_txData_bits;
@@ -132,7 +134,7 @@ module log_phy(
     .io_rdi_rdiBringupIO_lpLinkError(trainingModule_io_rdi_rdiBringupIO_lpLinkError),
     .io_currentState(trainingModule_io_currentState)
   );
-  rdi_map rdiDataMapper (
+  rdi_map #(.RDI_W(RDI_W)) rdiDataMapper (
     .clock(rdiDataMapper_clock),
     .reset(rdiDataMapper_reset),
     .io_rdi_lpData_ready(rdiDataMapper_io_rdi_lpData_ready),

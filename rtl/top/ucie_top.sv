@@ -1,4 +1,13 @@
-module ucie_top(
+// ucie_top: single-die UCIe 1.1 link.
+//
+// USE_FLIT=0 (default): legacy 64b-word datapath end to end.
+// USE_FLIT=1: flit-mode datapath — 64b host words are packed into 512b
+//   streaming flits (CRC-32 + seq + replay, see docs/flit_spec.md) and
+//   carried over a 128b internal RDI to the 16b MB AFE. Host and AFE
+//   pinouts are unchanged in both modes.
+module ucie_top #(
+  parameter USE_FLIT = 0
+) (
   input         HCLK,
   input         HRESETn,
   input         HSEL,
@@ -68,6 +77,7 @@ module ucie_top(
   wire  protocol_io_fault;
   wire  protocol_io_soft_reset;
   wire  hreset;
+  localparam RDI_W = (USE_FLIT != 0) ? 128 : 64;
   wire  d2dadapter_clock;
   wire  d2dadapter_reset;
   wire  d2dadapter_io_fdi_lpData_ready;
@@ -87,9 +97,9 @@ module ucie_top(
   wire  d2dadapter_io_rdi_lpData_ready;
   wire  d2dadapter_io_rdi_lpData_valid;
   wire  d2dadapter_io_rdi_lpData_irdy;
-  wire [63:0] d2dadapter_io_rdi_lpData_bits;
+  wire [RDI_W-1:0] d2dadapter_io_rdi_lpData_bits;
   wire  d2dadapter_io_rdi_plData_valid;
-  wire [63:0] d2dadapter_io_rdi_plData_bits;
+  wire [RDI_W-1:0] d2dadapter_io_rdi_plData_bits;
   wire [3:0] d2dadapter_io_rdi_lpStateReq;
   wire  d2dadapter_io_rdi_lpLinkError;
   wire [3:0] d2dadapter_io_rdi_plStateStatus;
@@ -107,9 +117,9 @@ module ucie_top(
   wire  logPhy_io_rdi_lpData_ready;
   wire  logPhy_io_rdi_lpData_valid;
   wire  logPhy_io_rdi_lpData_irdy;
-  wire [63:0] logPhy_io_rdi_lpData_bits;
+  wire [RDI_W-1:0] logPhy_io_rdi_lpData_bits;
   wire  logPhy_io_rdi_plData_valid;
-  wire [63:0] logPhy_io_rdi_plData_bits;
+  wire [RDI_W-1:0] logPhy_io_rdi_plData_bits;
   wire [3:0] logPhy_io_rdi_lpStateReq;
   wire  logPhy_io_rdi_lpLinkError;
   wire [3:0] logPhy_io_rdi_plStateStatus;
@@ -173,7 +183,7 @@ module ucie_top(
     .io_fdi_plStallReq(protocol_io_fdi_plStallReq),
     .io_fdi_lpStallAck(protocol_io_fdi_lpStallAck)
   );
-  d2d_adapt d2dadapter (
+  d2d_adapt #(.USE_FLIT(USE_FLIT), .RDI_W(RDI_W)) d2dadapter (
     .clock(d2dadapter_clock),
     .reset(d2dadapter_reset),
     .io_fdi_lpData_ready(d2dadapter_io_fdi_lpData_ready),
@@ -207,9 +217,10 @@ module ucie_top(
     .io_rdi_plConfigCredit(d2dadapter_io_rdi_plConfigCredit),
     .io_rdi_lpConfig_valid(d2dadapter_io_rdi_lpConfig_valid),
     .io_rdi_lpConfig_bits(d2dadapter_io_rdi_lpConfig_bits),
-    .io_rdi_lpConfigCredit(d2dadapter_io_rdi_lpConfigCredit)
+    .io_rdi_lpConfigCredit(d2dadapter_io_rdi_lpConfigCredit),
+    .io_flit_link_error()
   );
-  log_phy logPhy (
+  log_phy #(.RDI_W(RDI_W)) logPhy (
     .clock(logPhy_clock),
     .reset(logPhy_reset),
     .io_rdi_lpData_ready(logPhy_io_rdi_lpData_ready),

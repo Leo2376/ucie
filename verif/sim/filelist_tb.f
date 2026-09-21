@@ -9,6 +9,12 @@
 ../../rtl/common/async_q1.sv
 ../../rtl/d2d_adapter/d2d_adapt.sv
 ../../rtl/d2d_adapter/d2d_mb.sv
+../../rtl/d2d_adapter/d2d_mb_flit.sv
+../../rtl/d2d_adapter/flit_pack.sv
+../../rtl/d2d_adapter/flit_reasm.sv
+../../rtl/d2d_adapter/flit_slicer.sv
+../../rtl/d2d_adapter/flit_unpack.sv
+../../rtl/d2d_adapter/ucie_crc32.sv
 ../../rtl/d2d_adapter/d2d_sb.sv
 ../../rtl/d2d_adapter/fdi_stall.sv
 ../../rtl/d2d_adapter/lnk_dis.sv

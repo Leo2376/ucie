@@ -1,4 +1,7 @@
-module d2d_adapt(
+module d2d_adapt #(
+  parameter USE_FLIT = 0,
+  parameter RDI_W = 64
+) (
   input         clock,
   input         reset,
   output        io_fdi_lpData_ready,
@@ -18,9 +21,9 @@ module d2d_adapt(
   input         io_rdi_lpData_ready,
   output        io_rdi_lpData_valid,
   output        io_rdi_lpData_irdy,
-  output [63:0] io_rdi_lpData_bits,
+  output [RDI_W-1:0] io_rdi_lpData_bits,
   input         io_rdi_plData_valid,
-  input  [63:0] io_rdi_plData_bits,
+  input  [RDI_W-1:0] io_rdi_plData_bits,
   output [3:0]  io_rdi_lpStateReq,
   output        io_rdi_lpLinkError,
   input  [3:0]  io_rdi_plStateStatus,
@@ -32,7 +35,8 @@ module d2d_adapt(
   output        io_rdi_plConfigCredit,
   output        io_rdi_lpConfig_valid,
   output [31:0] io_rdi_lpConfig_bits,
-  input         io_rdi_lpConfigCredit
+  input         io_rdi_lpConfigCredit,
+  output        io_flit_link_error
 );
   wire  link_manager_clock;
   wire  link_manager_reset;
@@ -86,10 +90,10 @@ module d2d_adapt(
   wire [63:0] d2d_mainband_io_fdi_pl_data;
   wire  d2d_mainband_io_rdi_lp_irdy;
   wire  d2d_mainband_io_rdi_lp_valid;
-  wire [63:0] d2d_mainband_io_rdi_lp_data;
+  wire [RDI_W-1:0] d2d_mainband_io_rdi_lp_data;
   wire  d2d_mainband_io_rdi_pl_trdy;
   wire  d2d_mainband_io_rdi_pl_valid;
-  wire [63:0] d2d_mainband_io_rdi_pl_data;
+  wire [RDI_W-1:0] d2d_mainband_io_rdi_pl_data;
   wire [3:0] d2d_mainband_io_d2d_state;
   wire  d2d_mainband_io_mainband_stallreq;
   wire  d2d_mainband_io_mainband_stalldone;
@@ -192,10 +196,10 @@ module d2d_adapt(
     .io_fdi_pl_data(d2d_mainband_io_fdi_pl_data),
     .io_rdi_lp_irdy(d2d_mainband_io_rdi_lp_irdy),
     .io_rdi_lp_valid(d2d_mainband_io_rdi_lp_valid),
-    .io_rdi_lp_data(d2d_mainband_io_rdi_lp_data),
+    .io_rdi_lp_data(d2d_mainband_io_rdi_lp_data[63:0]),
     .io_rdi_pl_trdy(d2d_mainband_io_rdi_pl_trdy),
     .io_rdi_pl_valid(d2d_mainband_io_rdi_pl_valid),
-    .io_rdi_pl_data(d2d_mainband_io_rdi_pl_data),
+    .io_rdi_pl_data(d2d_mainband_io_rdi_pl_data[63:0]),
     .io_d2d_state(d2d_mainband_io_d2d_state),
     .io_mainband_stallreq(d2d_mainband_io_mainband_stallreq),
     .io_mainband_stalldone(d2d_mainband_io_mainband_stalldone),
@@ -235,16 +239,16 @@ module d2d_adapt(
     .io_parity_rx_enable(parity_generator_io_parity_rx_enable),
     .io_parity_tx_enable(parity_generator_io_parity_tx_enable)
   );
-  assign io_fdi_lpData_ready = d2d_mainband_io_fdi_pl_trdy;
-  assign io_fdi_plData_valid = d2d_mainband_io_fdi_pl_valid;
-  assign io_fdi_plData_bits = d2d_mainband_io_fdi_pl_data;
+  assign io_fdi_lpData_ready = (USE_FLIT != 0) ? flit_fdi_trdy : d2d_mainband_io_fdi_pl_trdy;
+  assign io_fdi_plData_valid = (USE_FLIT != 0) ? flit_fdi_pvld : d2d_mainband_io_fdi_pl_valid;
+  assign io_fdi_plData_bits = (USE_FLIT != 0) ? flit_fdi_pdata : d2d_mainband_io_fdi_pl_data;
   assign io_fdi_plStateStatus = link_manager_io_fdi_pl_state_sts;
   assign io_fdi_plInbandPres = link_manager_io_fdi_pl_inband_pres;
   assign io_fdi_plRxActiveReq = link_manager_io_fdi_pl_rx_active_req;
   assign io_fdi_plStallReq = fdi_stall_handler_io_fdi_pl_stallreq;
-  assign io_rdi_lpData_valid = d2d_mainband_io_rdi_lp_valid;
-  assign io_rdi_lpData_irdy = d2d_mainband_io_rdi_lp_irdy;
-  assign io_rdi_lpData_bits = d2d_mainband_io_rdi_lp_data;
+  assign io_rdi_lpData_valid = (USE_FLIT != 0) ? flit_tx_vld : d2d_mainband_io_rdi_lp_valid;
+  assign io_rdi_lpData_irdy = (USE_FLIT != 0) ? flit_tx_irdy : d2d_mainband_io_rdi_lp_irdy;
+  assign io_rdi_lpData_bits = (USE_FLIT != 0) ? flit_tx_data : d2d_mainband_io_rdi_lp_data;
   assign io_rdi_lpStateReq = link_manager_io_rdi_lp_state_req;
   assign io_rdi_lpLinkError = link_manager_io_rdi_lp_linkerror;
   assign io_rdi_lpStallAck = rdi_stall_handler_io_rdi_lp_stallack;
@@ -267,7 +271,8 @@ module d2d_adapt(
   assign fdi_stall_handler_io_fdi_lp_stallack = io_fdi_lpStallAck;
   assign rdi_stall_handler_clock = clock;
   assign rdi_stall_handler_reset = reset;
-  assign rdi_stall_handler_io_mainband_stalldone = d2d_mainband_io_mainband_stalldone;
+  assign rdi_stall_handler_io_mainband_stalldone = (USE_FLIT != 0) ? flit_stalldone :
+    d2d_mainband_io_mainband_stalldone;
   assign rdi_stall_handler_io_rdi_pl_stallreq = io_rdi_plStallReq;
   assign d2d_sideband_clock = clock;
   assign d2d_sideband_reset = reset;
@@ -285,9 +290,11 @@ module d2d_adapt(
   assign d2d_mainband_io_rdi_pl_data = io_rdi_plData_bits;
   assign d2d_mainband_io_d2d_state = link_manager_io_fdi_pl_state_sts;
   assign d2d_mainband_io_mainband_stallreq = rdi_stall_handler_io_mainband_stallreq;
-  assign d2d_mainband_io_parity_insert = parity_generator_io_parity_insert;
+  assign d2d_mainband_io_parity_insert = (USE_FLIT != 0) ? 1'b0 :
+    parity_generator_io_parity_insert;
   assign d2d_mainband_io_parity_data = {d2d_mainband_io_parity_data_hi,d2d_mainband_io_parity_data_lo};
-  assign d2d_mainband_io_parity_check = parity_generator_io_parity_check;
+  assign d2d_mainband_io_parity_check = (USE_FLIT != 0) ? 1'b0 :
+    parity_generator_io_parity_check;
   assign parity_generator_clock = clock;
   assign parity_generator_reset = reset;
   assign parity_generator_io_snd_data_0 = _WIRE_1[7:0];
@@ -304,4 +311,49 @@ module d2d_adapt(
   assign parity_generator_io_rdi_state = io_rdi_plStateStatus;
   assign parity_generator_io_parity_rx_enable = link_manager_io_parity_rx_enable;
   assign parity_generator_io_parity_tx_enable = link_manager_io_parity_tx_enable;
+  // ---- Flit-mode branch (USE_FLIT=1, RDI_W=128). Legacy d2d_mb stays
+  // instantiated (outputs muxed away); flit wires get defaults when off.
+  wire flit_fdi_trdy;
+  wire flit_fdi_pvld;
+  wire [63:0] flit_fdi_pdata;
+  wire flit_tx_vld;
+  wire flit_tx_irdy;
+  wire [RDI_W-1:0] flit_tx_data;
+  wire flit_stalldone;
+  wire flit_link_err;
+  generate
+    if (USE_FLIT != 0) begin : gen_flit
+      d2d_mb_flit u_mb_flit (
+        .clock(clock),
+        .reset(reset),
+        .io_fdi_lp_irdy(io_fdi_lpData_irdy),
+        .io_fdi_lp_valid(io_fdi_lpData_valid),
+        .io_fdi_lp_data(io_fdi_lpData_bits),
+        .io_fdi_pl_trdy(flit_fdi_trdy),
+        .io_fdi_pl_valid(flit_fdi_pvld),
+        .io_fdi_pl_data(flit_fdi_pdata),
+        .io_rdi_lp_irdy(flit_tx_irdy),
+        .io_rdi_lp_valid(flit_tx_vld),
+        .io_rdi_lp_data(flit_tx_data),
+        .io_rdi_pl_trdy(io_rdi_lpData_ready),
+        .io_rdi_pl_valid(io_rdi_plData_valid),
+        .io_rdi_pl_data(io_rdi_plData_bits),
+        .io_d2d_state(link_manager_io_fdi_pl_state_sts),
+        .io_mainband_stallreq(rdi_stall_handler_io_mainband_stallreq),
+        .io_mainband_stalldone(flit_stalldone),
+        .io_link_error(flit_link_err),
+        .io_reasm_overflow()
+      );
+    end else begin : gen_noflit
+      assign flit_fdi_trdy = 1'b1;
+      assign flit_fdi_pvld = 1'b0;
+      assign flit_fdi_pdata = 64'h0;
+      assign flit_tx_vld = 1'b0;
+      assign flit_tx_irdy = 1'b0;
+      assign flit_tx_data = {RDI_W{1'b0}};
+      assign flit_stalldone = 1'b0;
+      assign flit_link_err = 1'b0;
+    end
+  endgenerate
+  assign io_flit_link_error = (USE_FLIT != 0) ? flit_link_err : 1'b0;
 endmodule

@@ -1,18 +1,27 @@
-module rdi_map(
+// rdi_map: RDI <-> mainband-lane width conversion.
+//
+// RDI_W=64 (legacy): 64b word <-> 4x16b via dw_cpl / 4-slice RX.
+// RDI_W=128 (flit mode): 128b beats x4 <-> 512b flit <-> 32x16b.
+//   TX collects 4 beats then shifts out LSB-first; RX accumulates 32x16b
+//   then presents 4x128b beats (1-flit tolerance, overflow latches).
+module rdi_map #(
+  parameter RDI_W = 64
+) (
   input         clock,
   input         reset,
   output        io_rdi_lpData_ready,
   input         io_rdi_lpData_valid,
   input         io_rdi_lpData_irdy,
-  input  [63:0] io_rdi_lpData_bits,
+  input  [RDI_W-1:0] io_rdi_lpData_bits,
   output        io_rdi_plData_valid,
-  output [63:0] io_rdi_plData_bits,
+  output [RDI_W-1:0] io_rdi_plData_bits,
   input         io_mainbandLaneIO_txData_ready,
   output        io_mainbandLaneIO_txData_valid,
   output [15:0] io_mainbandLaneIO_txData_bits,
   input         io_mainbandLaneIO_rxData_valid,
   input  [15:0] io_mainbandLaneIO_rxData_bits
 );
+generate if (RDI_W == 64) begin : gen_legacy
 `ifdef RANDOMIZE_REG_INIT
   reg [31:0] _RAND_0;
   reg [31:0] _RAND_1;
@@ -160,4 +169,90 @@ end // initial
 `FIRRTL_AFTER_INITIAL
 `endif
 `endif // SYNTHESIS
+end else begin : gen_flit128
+  // ---- 128b flit mode: 4x128b beats <-> 512b flit <-> 32x16b ----
+  reg [511:0] tx_flit;
+  reg [2:0] tx_beats;   // beats collected (0..4)
+  reg tx_have;          // full flit ready to shift out
+  reg [5:0] tx_out;     // 16b beats emitted (0..31)
+  reg [511:0] rx_acc;
+  reg [5:0] rx_cnt;     // 16b beats accumulated (0..32)
+  reg [511:0] rx_out;
+  reg [2:0] rx_left;    // 128b beats left to present (0=idle)
+  reg rx_ovf;
+
+  wire tx_collect = (io_rdi_lpData_valid & io_rdi_lpData_irdy & ~tx_have);
+  wire [127:0] rx_beat0 = rx_out[127:0];
+  wire [127:0] rx_beat1 = rx_out[255:128];
+  wire [127:0] rx_beat2 = rx_out[383:256];
+  wire [127:0] rx_beat3 = rx_out[511:384];
+
+  assign io_rdi_lpData_ready = ~tx_have;
+  assign io_mainbandLaneIO_txData_valid = tx_have;
+  assign io_mainbandLaneIO_txData_bits = tx_flit[tx_out*16+:16];
+  assign io_rdi_plData_valid = (rx_left != 3'd0);
+  assign io_rdi_plData_bits = (rx_left == 3'd4) ? rx_beat0 :
+                              (rx_left == 3'd3) ? rx_beat1 :
+                              (rx_left == 3'd2) ? rx_beat2 : rx_beat3;
+
+  wire _unused_flit = &{rx_ovf, 1'b0};
+
+  always @(posedge clock) begin
+    if (reset) begin
+      tx_flit <= 512'h0;
+      tx_beats <= 3'd0;
+      tx_have <= 1'b0;
+      tx_out <= 6'd0;
+      rx_acc <= 512'h0;
+      rx_cnt <= 6'd0;
+      rx_out <= 512'h0;
+      rx_left <= 3'd0;
+      rx_ovf <= 1'b0;
+    end else begin
+      // TX collect 4 beats.
+      if (tx_collect) begin
+        case (tx_beats)
+          3'd0: tx_flit[127:0] <= io_rdi_lpData_bits;
+          3'd1: tx_flit[255:128] <= io_rdi_lpData_bits;
+          3'd2: tx_flit[383:256] <= io_rdi_lpData_bits;
+          3'd3: tx_flit[511:384] <= io_rdi_lpData_bits;
+          default: ;
+        endcase
+        if (tx_beats == 3'd3) begin
+          tx_have <= 1'b1;
+          tx_out <= 6'd0;
+          tx_beats <= 3'd0;
+        end else begin
+          tx_beats <= tx_beats + 3'd1;
+        end
+      end
+      // TX shift out LSB-first.
+      if (tx_have && io_mainbandLaneIO_txData_ready) begin
+        if (tx_out == 6'd31) begin
+          tx_have <= 1'b0;
+        end else begin
+          tx_out <= tx_out + 6'd1;
+        end
+      end
+      // RX accumulate 32x16b (shift-right: first beat ends at [15:0]).
+      if (io_mainbandLaneIO_rxData_valid) begin
+        rx_acc <= {io_mainbandLaneIO_rxData_bits, rx_acc[511:16]};
+        if (rx_cnt == 6'd31) begin
+          if (rx_left != 3'd0) begin
+            rx_ovf <= 1'b1; // no room: drop (back-to-back flits)
+          end else begin
+            rx_out <= {io_mainbandLaneIO_rxData_bits, rx_acc[511:16]};
+            rx_left <= 3'd4;
+          end
+          rx_cnt <= 6'd0;
+        end else begin
+          rx_cnt <= rx_cnt + 6'd1;
+        end
+      end
+      // RX present 4 beats (reasm side is always ready: 1 beat/cycle).
+      if (rx_left != 3'd0) rx_left <= rx_left - 3'd1;
+    end
+  end
+end
+endgenerate
 endmodule
