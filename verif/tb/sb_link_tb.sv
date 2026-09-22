@@ -91,7 +91,9 @@ module sb_link_tb;
     .io_sbAfe_rxData(sb_rx),
     .io_sbAfe_rxClock(sb_rxc),
     .io_sbAfe_rxEn(tb_sbRxEn),
-    .io_sbAfe_pllLock(1'b1)
+    .io_sbAfe_pllLock(1'b1),
+    .o_flit_link_error(),
+    .o_flit_overflow()
   );
 
   always #5 HCLK = ~HCLK;

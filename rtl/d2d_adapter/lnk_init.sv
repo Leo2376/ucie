@@ -38,9 +38,13 @@ module lnk_init(
   wire  _GEN_3 = io_linkinit_sb_rcv == 6'h24 | param_exch_sbmsg_rcv_flag;
   wire  _GEN_4 = io_linkinit_sb_rdy & io_linkinit_sb_snd == 6'h24 | param_exch_sbmsg_snt_flag;
   wire [2:0] _GEN_5 = param_exch_sbmsg_snt_flag & param_exch_sbmsg_rcv_flag ? 3'h3 : linkinit_state_reg;
+  // ACTIVE RSP goes out when the partner asked (req received) even if our
+  // own rxactive path is not up yet; otherwise neither side can send the
+  // first RSP (both wait on rxactive_sts, which needs an established link).
+  wire _rsp_trig = active_sbmsg_req_rcv_flag |
+    (io_fdi_lp_rxactive_sts & io_linkinit_fdi_pl_rxactive_req);
   wire [5:0] _GEN_7 = transition_to_active_reg & ~active_sbmsg_ext_req_reg ? 6'h1 : 6'h0;
-  wire [5:0] _GEN_8 = io_fdi_lp_rxactive_sts & io_linkinit_fdi_pl_rxactive_req & ~active_sbmsg_ext_rsp_reg ? 6'h11 :
-    _GEN_7;
+  wire [5:0] _GEN_8 = _rsp_trig & ~active_sbmsg_ext_rsp_reg ? 6'h11 : _GEN_7;
   wire  _GEN_9 = io_linkinit_sb_rcv == 6'h11 | active_sbmsg_rsp_rcv_flag;
   wire  _GEN_10 = io_linkinit_sb_rcv == 6'h1 | active_sbmsg_req_rcv_flag;
   wire  _GEN_11 = io_linkinit_sb_snd == 6'h11 & io_linkinit_sb_rdy | active_sbmsg_ext_rsp_reg;

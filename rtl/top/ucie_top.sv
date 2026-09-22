@@ -6,7 +6,8 @@
 //   carried over a 128b internal RDI to the 16b MB AFE. Host and AFE
 //   pinouts are unchanged in both modes.
 module ucie_top #(
-  parameter USE_FLIT = 0
+  parameter USE_FLIT = 0,
+  parameter NLANES = 1
 ) (
   input         HCLK,
   input         HRESETn,
@@ -39,10 +40,10 @@ module ucie_top #(
   input         io_mbAfe_fifoParams_reset,
   input         io_mbAfe_txData_ready,
   output        io_mbAfe_txData_valid,
-  output [15:0] io_mbAfe_txData_bits_0,
+  output [NLANES*16-1:0] io_mbAfe_txData_bits_0,
   output        io_mbAfe_rxData_ready,
   input         io_mbAfe_rxData_valid,
-  input  [15:0] io_mbAfe_rxData_bits_0,
+  input  [NLANES*16-1:0] io_mbAfe_rxData_bits_0,
   output [2:0]  io_mbAfe_txFreqSel,
   output        io_mbAfe_rxEn,
   input         io_mbAfe_pllLock,
@@ -53,7 +54,9 @@ module ucie_top #(
   input         io_sbAfe_rxData,
   input         io_sbAfe_rxClock,
   output        io_sbAfe_rxEn,
-  input         io_sbAfe_pllLock
+  input         io_sbAfe_pllLock,
+  output        o_flit_link_error,
+  output        o_flit_overflow
 );
   wire  protocol_io_fdi_lpData_ready;
   wire  protocol_io_fdi_lpData_valid;
@@ -136,10 +139,10 @@ module ucie_top #(
   wire  logPhy_io_mbAfe_fifoParams_reset;
   wire  logPhy_io_mbAfe_txData_ready;
   wire  logPhy_io_mbAfe_txData_valid;
-  wire [15:0] logPhy_io_mbAfe_txData_bits_0;
+  wire [NLANES*16-1:0] logPhy_io_mbAfe_txData_bits_0;
   wire  logPhy_io_mbAfe_rxData_ready;
   wire  logPhy_io_mbAfe_rxData_valid;
-  wire [15:0] logPhy_io_mbAfe_rxData_bits_0;
+  wire [NLANES*16-1:0] logPhy_io_mbAfe_rxData_bits_0;
   wire  logPhy_io_mbAfe_rxEn;
   wire  logPhy_io_mbAfe_pllLock;
   wire  logPhy_io_sbAfe_txData;
@@ -147,6 +150,8 @@ module ucie_top #(
   wire  logPhy_io_sbAfe_rxData;
   wire  logPhy_io_sbAfe_rxClock;
   wire  logPhy_io_sbAfe_pllLock;
+  wire  d2d_flit_link_error;
+  wire  d2d_flit_overflow;
   ahb_fdi protocol (
     .HCLK(HCLK),
     .HRESETn(HRESETn),
@@ -218,9 +223,10 @@ module ucie_top #(
     .io_rdi_lpConfig_valid(d2dadapter_io_rdi_lpConfig_valid),
     .io_rdi_lpConfig_bits(d2dadapter_io_rdi_lpConfig_bits),
     .io_rdi_lpConfigCredit(d2dadapter_io_rdi_lpConfigCredit),
-    .io_flit_link_error()
+    .io_flit_link_error(d2d_flit_link_error),
+    .io_flit_overflow(d2d_flit_overflow)
   );
-  log_phy #(.RDI_W(RDI_W)) logPhy (
+  log_phy #(.RDI_W(RDI_W), .NLANES(NLANES)) logPhy (
     .clock(logPhy_clock),
     .reset(logPhy_reset),
     .io_rdi_lpData_ready(logPhy_io_rdi_lpData_ready),
@@ -276,6 +282,9 @@ module ucie_top #(
   assign io_sbAfe_txData = logPhy_io_sbAfe_txData;
   assign io_sbAfe_txClock = logPhy_io_sbAfe_txClock;
   assign io_sbAfe_rxEn = 1'h1;
+  // Flit error surfaces: retry-exceeded + reassembly overflow.
+  assign o_flit_link_error = d2d_flit_link_error;
+  assign o_flit_overflow = d2d_flit_overflow;
   assign hreset = ~HRESETn;
   assign protocol_io_fdi_lpData_ready = d2dadapter_io_fdi_lpData_ready;
   assign protocol_io_fdi_plData_valid = d2dadapter_io_fdi_plData_valid;

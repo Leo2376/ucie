@@ -38,6 +38,7 @@ module flit_path_tb;
   wire tb_mbTxValid, tb_mbRxRdy, tb_mbRxEn, tb_sbTx, tb_sbTxClk, tb_sbRxEn;
   wire [15:0] tb_mbTxBits;
   wire [2:0] tb_mbFreq;
+  wire tb_flit_err, tb_flit_ovf;
 
   // MB AFE loopback: tx straight into rx, same clock.
   wire        mb_rx_valid;
@@ -89,7 +90,9 @@ module flit_path_tb;
     .io_sbAfe_rxData(sb_rx),
     .io_sbAfe_rxClock(sb_rxc),
     .io_sbAfe_rxEn(tb_sbRxEn),
-    .io_sbAfe_pllLock(1'b1)
+    .io_sbAfe_pllLock(1'b1),
+    .o_flit_link_error(tb_flit_err),
+    .o_flit_overflow(tb_flit_ovf)
   );
 
   // Loopback with 1-cycle delay (no combinational loop on valid/ready).
@@ -160,9 +163,27 @@ module flit_path_tb;
     if (dut.d2dadapter.gen_flit.u_mb_flit.u_reasm.overflow) begin
       $display("FAIL: reasm overflow"); fails = fails + 1;
     end
+    if (tb_flit_err) begin
+      $display("FAIL: top link_error asserted"); fails = fails + 1;
+    end else $display("PASS: top link_error clear");
+    if (tb_flit_ovf) begin
+      $display("FAIL: top overflow asserted"); fails = fails + 1;
+    end else $display("PASS: top overflow clear");
 
     if (fails == 0) $display("FLITPATH PASS");
     else $display("FLITPATH FAIL fails=%0d", fails);
+    $display("PATHSTATE wcnt=%0d seq=%0d oldest=%0d pend=%b slice_bl=%0d rmap_tx=%b/%0d rmap_rxleft=%0d reasm_pv=%b up_drain=%b up_err=%0d",
+             dut.d2dadapter.gen_flit.u_mb_flit.u_pack.wcnt,
+             dut.d2dadapter.gen_flit.u_mb_flit.u_pack.seq_reg,
+             dut.d2dadapter.gen_flit.u_mb_flit.u_pack.oldest_seq,
+             dut.d2dadapter.gen_flit.u_mb_flit.u_pack.pending_unacked,
+             dut.d2dadapter.gen_flit.u_mb_flit.u_slice.beats_left,
+             dut.logPhy.rdiDataMapper.gen_flit128.tx_have,
+             dut.logPhy.rdiDataMapper.gen_flit128.tx_out,
+             dut.logPhy.rdiDataMapper.gen_flit128.rx_left,
+             dut.d2dadapter.gen_flit.u_mb_flit.u_reasm.pending_vld,
+             dut.d2dadapter.gen_flit.u_mb_flit.u_unpack.draining,
+             dut.d2dadapter.gen_flit.u_mb_flit.u_unpack.err_cnt);
     $finish;
   end
 

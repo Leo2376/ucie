@@ -6,8 +6,11 @@ SNIFFFILELIST := filelist_sniff.f
 LINKFILELIST := filelist_link.f
 FLITFILELIST := filelist_flit.f
 FLITPATHFILELIST := filelist_flitpath.f
+FLITSTRESSFILELIST := filelist_flitstress.f
+LINKMGMTFILELIST := filelist_linkmgmt.f
+LANEPLLFILELIST := filelist_lanepll.f
 
-.PHONY: lint sim sniff link flit flit_path clean
+.PHONY: lint sim sniff link flit flit_path flit_stress link_mgmt lane_pll regress clean
 
 lint:
 	verilator --lint-only -f $(FILELIST) --top-module $(TOP) --timing
@@ -33,9 +36,27 @@ flit:
 	./obj_dir_flit/simv_flit
 
 flit_path:
-	verilator --binary --timing -j 0 -f $(FILELIST) -f $(FLITPATHFILELIST) --top-module flit_path_tb \
+	verilator --binary --timing -j 0 -f $(FLITPATHFILELIST) --top-module flit_path_tb \
 	  -Mdir obj_dir_flitpath -o simv_flitpath --build -Wno-TIMESCALEMOD
 	./obj_dir_flitpath/simv_flitpath
 
+flit_stress:
+	verilator --binary --timing -j 0 -f $(FLITSTRESSFILELIST) --top-module flit_stress_tb \
+	  -Mdir obj_dir_flitstress -o simv_flitstress --build -Wno-TIMESCALEMOD
+	./obj_dir_flitstress/simv_flitstress
+
+link_mgmt:
+	verilator --binary --timing -j 0 -f $(LINKMGMTFILELIST) --top-module link_mgmt_tb \
+	  -Mdir obj_dir_linkmgmt -o simv_linkmgmt --build -Wno-TIMESCALEMOD
+	./obj_dir_linkmgmt/simv_linkmgmt
+
+lane_pll:
+	verilator --binary --timing -j 0 -f $(LANEPLLFILELIST) --top-module lane_pll_tb \
+	  -Mdir obj_dir_lanepll -o simv_lanepll --build -Wno-TIMESCALEMOD
+	./obj_dir_lanepll/simv_lanepll
+
+regress:
+	./regress.sh
+
 clean:
-	rm -rf obj_dir obj_dir_tb obj_dir_sniff *.vcd *.fst
+	rm -rf obj_dir* *.vcd *.fst

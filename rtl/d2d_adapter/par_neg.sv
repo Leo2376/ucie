@@ -25,7 +25,10 @@ module par_neg(
   wire  _GEN_6 = (io_parity_sb_snd == 6'h31 | io_parity_sb_snd == 6'h32) & io_parity_sb_rdy | parity_rsp_snt_flag_reg;
   wire  _GEN_7 = io_parity_sb_rcv == 6'h21 | parity_req_rcv_flag_reg;
   wire  _T_18 = io_parity_sb_rcv == 6'h31;
-  wire  _GEN_9 = _T_14 & io_parity_sb_rdy ? 1'h0 : parity_rx_enable_reg;
+  // Fix: RX enable asserts once our 0x32 response is accepted (it was
+  // cleared to 0, so parity could never turn on). TX enable asserts when
+  // the partner's 0x31 is observed (see seq block below).
+  wire  _GEN_9 = _T_14 & io_parity_sb_rdy ? 1'h1 : parity_rx_enable_reg;
   wire  _GEN_10 = _T_14 & io_parity_sb_rdy ? _GEN_6 : parity_rsp_snt_flag_reg;
   wire  _GEN_11 = _T_13 & io_parity_sb_rdy | _GEN_9;
   wire  _GEN_12 = _T_13 & io_parity_sb_rdy ? _GEN_6 : _GEN_10;
@@ -53,7 +56,8 @@ module par_neg(
     if (reset) begin
       parity_tx_enable_reg <= 1'h0;
     end else if (io_start_negotiation) begin
-      parity_tx_enable_reg <= _T_18;
+      // Sticky (like RX): once the partner's 0x31 is seen, stay enabled.
+      parity_tx_enable_reg <= _T_18 | parity_tx_enable_reg;
     end
   end
 // Register and memory initialization

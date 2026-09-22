@@ -63,6 +63,11 @@ module flit_pack_tb;
   reg [511:0] first_tx;
   integer i;
 
+  // Spare CRC for building idle/poison test flits with valid CRC.
+  reg [479:0] crc_in;
+  wire [31:0] crc_out;
+  ucie_crc32 u_crc_tb (.data(crc_in), .crc(crc_out));
+
   // Push one word: setup on negedge, captured on next posedge, drop after.
   task automatic push_word(input [63:0] w);
     begin
@@ -188,6 +193,72 @@ module flit_pack_tb;
 
     if (link_error) begin $display("FAIL: unexpected link_error"); fails++; end
     else $display("PASS: no link_error");
+
+    // 4. MAX_RETRY: 4 nacks (MAX_RETRY=3) -> link_error latches, quiesce.
+    for (i = 0; i < 4; i = i + 1) begin
+      @(negedge clock);
+      nack_in = 1'b1;
+      @(posedge clock);
+      @(negedge clock);
+      nack_in = 1'b0;
+      p_out_ready = 1'b1;
+      @(posedge clock); #1;
+      p_out_ready = 1'b0;
+      repeat (2) @(posedge clock);
+    end
+    #1;
+    if (!link_error) begin $display("FAIL: link_error not latched after MAX_RETRY"); fails++; end
+    else $display("PASS: link_error latched after MAX_RETRY");
+    if (p_out_valid) begin $display("FAIL: out_valid not quiesced on link_error"); fails++; end
+    else $display("PASS: quiesced on link_error");
+
+    // 5. fmt decode via unpack (fresh state after reset pulse).
+    reset = 1'b1;
+    repeat (2) @(posedge clock);
+    reset = 1'b0;
+    repeat (2) @(posedge clock);
+    begin
+      reg [31:0] ih, ph;
+      reg [511:0] idle_f, poison_f;
+      integer k;
+      // Idle: fmt=1, len=0, zero payload, valid CRC -> ack, no words.
+      // (seq must equal expected seq: 0 after reset.)
+      ih = {8'h00, 4'h1, 6'd0, 14'h0};
+      crc_in = {ih, 448'h0}; #1;
+      idle_f = {ih, 448'h0, crc_out};
+      present_flit(idle_f);
+      repeat (3) @(posedge clock); #1;
+      if (u_err_cnt !== 0) begin
+        $display("FAIL: idle flit counted err=%0d", u_err_cnt); fails++;
+      end else $display("PASS: idle acked without error");
+      if (u_out_valid) begin
+        $display("FAIL: idle emitted words"); fails++;
+      end else $display("PASS: idle emits no words");
+      // Poison: fmt=F with valid CRC -> nack + err, no words.
+      // (seq=1 = next expected after the idle above; poison nacks anyway.)
+      ph = {8'h01, 4'hF, 6'd7, 14'h0};
+      crc_in = {ph, saved_flit[479:32]}; #1;
+      poison_f = {ph, saved_flit[479:32], crc_out};
+      present_flit(poison_f);
+      repeat (3) @(posedge clock); #1;
+      if (u_err_cnt !== 32'd1) begin
+        $display("FAIL: poison err_cnt exp=1 got=%0d", u_err_cnt); fails++;
+      end else $display("PASS: poison detected (err_cnt=1)");
+      if (u_out_valid) begin
+        $display("FAIL: poison emitted words"); fails++;
+      end else $display("PASS: poison emits no words");
+      // Duplicate data: re-present saved_flit (data, seq 0, valid CRC).
+      // exp is 1 (idle seq 0 accepted above), so seq 0 == exp-1: must
+      // re-ack WITHOUT re-streaming and WITHOUT counting an error.
+      present_flit(saved_flit);
+      repeat (3) @(posedge clock); #1;
+      if (u_err_cnt !== 32'd1) begin
+        $display("FAIL: duplicate changed err_cnt to %0d", u_err_cnt); fails++;
+      end else $display("PASS: duplicate re-acked without error");
+      if (u_out_valid) begin
+        $display("FAIL: duplicate re-streamed words"); fails++;
+      end else $display("PASS: duplicate emits no words");
+    end
 
     if (fails == 0) $display("FLIT PASS");
     else $display("FLIT FAIL fails=%0d", fails);

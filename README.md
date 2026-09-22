@@ -178,5 +178,10 @@ pulse. No link partner is modeled yet, so no AFE traffic is expected.
 * [x] Legacy RTL captured (`legacy/UCITop.orig.sv`)
 * [x] Renamed top + main blocks to short names, split 48 files into `rtl/`, lint-clean
 * [x] Native AHB-Lite 64-bit host IF (`ahb_fdi`, `BASE_ADDR=0x0`) + AHB smoke test passing
-* [ ] Directed link tests with AFE link partner model
+* [x] Phase 0 hygiene: `filelist_rtl.f` single source, `verif/tests/regression.list`, `make regress`, shared `verif/tb/common/`
+* [x] Phase 1 flit reliability: `MAX_RETRY->link_error` + quiesce, `fmt` decode, `exp_seq` duplicate suppression, `o_flit_link_error/o_flit_overflow` on top, `GATE_ACTIVE` param
+* [x] Phase 2 link-mgmt directed tests (`link_mgmt_tb`: PARAM/ACTIVE, LINKRESET 0x09/0x19, DISABLE 0x0C/0x1C, parity 0x21/0x31/0x32 + enables, RETRAIN observation); full SB bring-up (`sb_link_tb`) unchanged
+* [x] Phase 3 PHY: `NLANES` param end to end (default 1, target 16), `lane_pll_tb` (4-lane async-FIFO loopback, pllLock=0 negative, rdi overwrite flag)
+* [ ] Full `make regress` green including `sb_link_tb` bring-up (long)
+* [ ] Sideband transport for cross-die flit ACK/NACK + 256B datapath
 * [ ] First hardened block review (`ahb_fdi` -> style pass)

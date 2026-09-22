@@ -36,7 +36,8 @@ module d2d_adapt #(
   output        io_rdi_lpConfig_valid,
   output [31:0] io_rdi_lpConfig_bits,
   input         io_rdi_lpConfigCredit,
-  output        io_flit_link_error
+  output        io_flit_link_error,
+  output        io_flit_overflow
 );
   wire  link_manager_clock;
   wire  link_manager_reset;
@@ -321,6 +322,7 @@ module d2d_adapt #(
   wire [RDI_W-1:0] flit_tx_data;
   wire flit_stalldone;
   wire flit_link_err;
+  wire flit_overflow;
   generate
     if (USE_FLIT != 0) begin : gen_flit
       d2d_mb_flit u_mb_flit (
@@ -342,7 +344,7 @@ module d2d_adapt #(
         .io_mainband_stallreq(rdi_stall_handler_io_mainband_stallreq),
         .io_mainband_stalldone(flit_stalldone),
         .io_link_error(flit_link_err),
-        .io_reasm_overflow()
+        .io_reasm_overflow(flit_overflow)
       );
     end else begin : gen_noflit
       assign flit_fdi_trdy = 1'b1;
@@ -353,7 +355,9 @@ module d2d_adapt #(
       assign flit_tx_data = {RDI_W{1'b0}};
       assign flit_stalldone = 1'b0;
       assign flit_link_err = 1'b0;
+      assign flit_overflow = 1'b0;
     end
   endgenerate
   assign io_flit_link_error = (USE_FLIT != 0) ? flit_link_err : 1'b0;
+  assign io_flit_overflow = (USE_FLIT != 0) ? flit_overflow : 1'b0;
 endmodule

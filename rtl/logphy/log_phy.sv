@@ -1,5 +1,6 @@
 module log_phy #(
-  parameter RDI_W = 64
+  parameter RDI_W = 64,
+  parameter NLANES = 1
 ) (
   input         clock,
   input         reset,
@@ -25,10 +26,10 @@ module log_phy #(
   input         io_mbAfe_fifoParams_reset,
   input         io_mbAfe_txData_ready,
   output        io_mbAfe_txData_valid,
-  output [15:0] io_mbAfe_txData_bits_0,
+  output [NLANES*16-1:0] io_mbAfe_txData_bits_0,
   output        io_mbAfe_rxData_ready,
   input         io_mbAfe_rxData_valid,
-  input  [15:0] io_mbAfe_rxData_bits_0,
+  input  [NLANES*16-1:0] io_mbAfe_rxData_bits_0,
   output        io_mbAfe_rxEn,
   input         io_mbAfe_pllLock,
   output        io_sbAfe_txData,
@@ -69,24 +70,24 @@ module log_phy #(
   wire [RDI_W-1:0] rdiDataMapper_io_rdi_plData_bits;
   wire  rdiDataMapper_io_mainbandLaneIO_txData_ready;
   wire  rdiDataMapper_io_mainbandLaneIO_txData_valid;
-  wire [15:0] rdiDataMapper_io_mainbandLaneIO_txData_bits;
+  wire [NLANES*16-1:0] rdiDataMapper_io_mainbandLaneIO_txData_bits;
   wire  rdiDataMapper_io_mainbandLaneIO_rxData_valid;
-  wire [15:0] rdiDataMapper_io_mainbandLaneIO_rxData_bits;
+  wire [NLANES*16-1:0] rdiDataMapper_io_mainbandLaneIO_rxData_bits;
   wire  lanes_clock;
   wire  lanes_reset;
   wire  lanes_io_mainbandIo_fifoParams_clk;
   wire  lanes_io_mainbandIo_fifoParams_reset;
   wire  lanes_io_mainbandIo_txData_ready;
   wire  lanes_io_mainbandIo_txData_valid;
-  wire [15:0] lanes_io_mainbandIo_txData_bits_0;
+  wire [NLANES*16-1:0] lanes_io_mainbandIo_txData_bits_0;
   wire  lanes_io_mainbandIo_rxData_ready;
   wire  lanes_io_mainbandIo_rxData_valid;
-  wire [15:0] lanes_io_mainbandIo_rxData_bits_0;
+  wire [NLANES*16-1:0] lanes_io_mainbandIo_rxData_bits_0;
   wire  lanes_io_mainbandLaneIO_txData_ready;
   wire  lanes_io_mainbandLaneIO_txData_valid;
-  wire [15:0] lanes_io_mainbandLaneIO_txData_bits;
+  wire [NLANES*16-1:0] lanes_io_mainbandLaneIO_txData_bits;
   wire  lanes_io_mainbandLaneIO_rxData_valid;
-  wire [15:0] lanes_io_mainbandLaneIO_rxData_bits;
+  wire [NLANES*16-1:0] lanes_io_mainbandLaneIO_rxData_bits;
   wire  sidebandChannel_clock;
   wire  sidebandChannel_reset;
   wire [31:0] sidebandChannel_io_to_upper_layer_tx_bits;
@@ -134,7 +135,7 @@ module log_phy #(
     .io_rdi_rdiBringupIO_lpLinkError(trainingModule_io_rdi_rdiBringupIO_lpLinkError),
     .io_currentState(trainingModule_io_currentState)
   );
-  rdi_map #(.RDI_W(RDI_W)) rdiDataMapper (
+  rdi_map #(.RDI_W(RDI_W), .NLANES(NLANES)) rdiDataMapper (
     .clock(rdiDataMapper_clock),
     .reset(rdiDataMapper_reset),
     .io_rdi_lpData_ready(rdiDataMapper_io_rdi_lpData_ready),
@@ -149,7 +150,7 @@ module log_phy #(
     .io_mainbandLaneIO_rxData_valid(rdiDataMapper_io_mainbandLaneIO_rxData_valid),
     .io_mainbandLaneIO_rxData_bits(rdiDataMapper_io_mainbandLaneIO_rxData_bits)
   );
-  Lanes lanes (
+  Lanes #(.NLANES(NLANES)) lanes (
     .clock(lanes_clock),
     .reset(lanes_reset),
     .io_mainbandIo_fifoParams_clk(lanes_io_mainbandIo_fifoParams_clk),

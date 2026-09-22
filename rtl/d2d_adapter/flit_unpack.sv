@@ -38,6 +38,11 @@ module flit_unpack (
   wire [447:0] payload = in_bits[479:32];
   wire [31:0] rx_crc = in_bits[31:0];
   wire [7:0] rx_seq = hdr[31:24];
+  wire [3:0] rx_fmt = hdr[23:20];
+  wire [5:0] rx_len = hdr[19:14];
+  localparam [3:0] FMT_DATA = 4'h0;
+  localparam [3:0] FMT_IDLE = 4'h1;
+  localparam [3:0] FMT_POISON = 4'hF;
   wire [31:0] calc_crc;
   ucie_crc32 u_crc (.data({hdr, payload}), .crc(calc_crc));
   wire crc_ok = (calc_crc == rx_crc);
@@ -68,7 +73,42 @@ module flit_unpack (
       ack_v <= 1'b0;
       nack_r <= 1'b0;
       if (!draining && in_valid && in_ready) begin
-        if (crc_ok) begin
+        if (!crc_ok) begin
+          nack_r <= 1'b1;
+          errs <= errs + 32'd1;
+        end else if (rx_fmt == FMT_IDLE) begin
+          // Idle/skip: keep-alive only. Ack if it carries the expected
+          // seq (duplicate idles re-ack without effect); no words.
+          if (rx_seq == exp_s) begin
+            ack_v <= 1'b1;
+            ack_s <= rx_seq;
+            exp_s <= rx_seq + 8'd1;
+          end else if (rx_seq == exp_s - 8'd1) begin
+            ack_v <= 1'b1;
+            ack_s <= rx_seq;
+          end else begin
+            nack_r <= 1'b1;
+            errs <= errs + 32'd1;
+          end
+        end else if (rx_fmt == FMT_POISON) begin
+          // Poisoned/retry marker: drop, count, nack to force retransmit.
+          nack_r <= 1'b1;
+          errs <= errs + 32'd1;
+        end else if (rx_fmt != FMT_DATA || rx_len != 6'd7) begin
+          // Unknown fmt or bad len: drop, count, nack.
+          nack_r <= 1'b1;
+          errs <= errs + 32'd1;
+        end else if (rx_seq == exp_s - 8'd1) begin
+          // Stale retransmit (already acked before the retry raced it):
+          // re-ack so TX can advance, but do NOT re-stream the payload
+          // (otherwise duplicates shift the word stream).
+          ack_v <= 1'b1;
+          ack_s <= rx_seq;
+        end else if (rx_seq != exp_s) begin
+          // Out-of-window (gap/loss): nack, count, wait for retry.
+          nack_r <= 1'b1;
+          errs <= errs + 32'd1;
+        end else begin
           pbuf[0] <= payload[63:0];
           pbuf[1] <= payload[127:64];
           pbuf[2] <= payload[191:128];
@@ -82,9 +122,6 @@ module flit_unpack (
           ack_v <= 1'b1;
           ack_s <= rx_seq;
           exp_s <= rx_seq + 8'd1;
-        end else begin
-          nack_r <= 1'b1;
-          errs <= errs + 32'd1;
         end
       end else if (draining && out_ready && out_valid) begin
         rptr <= rptr + 3'd1;

@@ -5,7 +5,8 @@
 //   TX collects 4 beats then shifts out LSB-first; RX accumulates 32x16b
 //   then presents 4x128b beats (1-flit tolerance, overflow latches).
 module rdi_map #(
-  parameter RDI_W = 64
+  parameter RDI_W = 64,
+  parameter NLANES = 1
 ) (
   input         clock,
   input         reset,
@@ -17,11 +18,15 @@ module rdi_map #(
   output [RDI_W-1:0] io_rdi_plData_bits,
   input         io_mainbandLaneIO_txData_ready,
   output        io_mainbandLaneIO_txData_valid,
-  output [15:0] io_mainbandLaneIO_txData_bits,
+  output [NLANES*16-1:0] io_mainbandLaneIO_txData_bits,
   input         io_mainbandLaneIO_rxData_valid,
-  input  [15:0] io_mainbandLaneIO_rxData_bits
+  input  [NLANES*16-1:0] io_mainbandLaneIO_rxData_bits
 );
 generate if (RDI_W == 64) begin : gen_legacy
+  // Legacy 64b path is single-lane only.
+  initial begin
+    if (NLANES != 1) $error("rdi_map legacy RDI_W=64 needs NLANES=1");
+  end
 `ifdef RANDOMIZE_REG_INIT
   reg [31:0] _RAND_0;
   reg [31:0] _RAND_1;
@@ -44,6 +49,11 @@ generate if (RDI_W == 64) begin : gen_legacy
   reg [15:0] rxData_2;
   reg [15:0] rxData_3;
   reg  hasRxData;
+  // Sticky overwrite flag: a completed word arrived while the previous
+  // word was still presented (downstream samples a 1-cycle pulse with no
+  // backpressure, so back-to-back completion loses data). Hierarchical
+  // TB check (lane_pll_tb); no port churn.
+  reg  rx_overwrite;
   wire [1:0] _T_1 = 2'h3 - rxSliceCounter;
   wire [1:0] _rxSliceCounter_T_1 = rxSliceCounter + 2'h1;
   wire  _T_2 = rxSliceCounter == 2'h3;
@@ -113,6 +123,12 @@ generate if (RDI_W == 64) begin : gen_legacy
     end else begin
       hasRxData <= _GEN_11;
     end
+    // Latch overwrite (clear on reset only).
+    if (reset) begin
+      rx_overwrite <= 1'h0;
+    end else if (_GEN_11 && hasRxData) begin
+      rx_overwrite <= 1'h1;
+    end
   end
 // Register and memory initialization
 `ifdef RANDOMIZE_GARBAGE_ASSIGN
@@ -170,13 +186,20 @@ end // initial
 `endif
 `endif // SYNTHESIS
 end else begin : gen_flit128
-  // ---- 128b flit mode: 4x128b beats <-> 512b flit <-> 32x16b ----
+  // ---- 128b flit mode: 4x128b beats <-> 512b flit <-> lanes ----
+  // NLANES=1: 32x16b serial (legacy timing). NLANES=16: 2x256b striped
+  // (2 cycles/flit). CHUNK=NLANES*16 bits per lane-side cycle LSB-first.
+  localparam int CHUNK = NLANES * 16;
+  localparam int NCHUNK = 512 / CHUNK;
+  initial begin
+    if (512 % CHUNK != 0) $error("rdi_map flit128: 512 %% (NLANES*16) != 0");
+  end
   reg [511:0] tx_flit;
   reg [2:0] tx_beats;   // beats collected (0..4)
   reg tx_have;          // full flit ready to shift out
-  reg [5:0] tx_out;     // 16b beats emitted (0..31)
+  reg [5:0] tx_out;     // chunks emitted (0..NCHUNK-1)
   reg [511:0] rx_acc;
-  reg [5:0] rx_cnt;     // 16b beats accumulated (0..32)
+  reg [5:0] rx_cnt;     // chunks accumulated (0..NCHUNK-1)
   reg [511:0] rx_out;
   reg [2:0] rx_left;    // 128b beats left to present (0=idle)
   reg rx_ovf;
@@ -189,7 +212,7 @@ end else begin : gen_flit128
 
   assign io_rdi_lpData_ready = ~tx_have;
   assign io_mainbandLaneIO_txData_valid = tx_have;
-  assign io_mainbandLaneIO_txData_bits = tx_flit[tx_out*16+:16];
+  assign io_mainbandLaneIO_txData_bits = tx_flit[tx_out*CHUNK+:CHUNK];
   assign io_rdi_plData_valid = (rx_left != 3'd0);
   assign io_rdi_plData_bits = (rx_left == 3'd4) ? rx_beat0 :
                               (rx_left == 3'd3) ? rx_beat1 :
@@ -226,22 +249,22 @@ end else begin : gen_flit128
           tx_beats <= tx_beats + 3'd1;
         end
       end
-      // TX shift out LSB-first.
+      // TX shift out LSB-first, one CHUNK per ready cycle.
       if (tx_have && io_mainbandLaneIO_txData_ready) begin
-        if (tx_out == 6'd31) begin
+        if (tx_out == 6'(NCHUNK-1)) begin
           tx_have <= 1'b0;
         end else begin
           tx_out <= tx_out + 6'd1;
         end
       end
-      // RX accumulate 32x16b (shift-right: first beat ends at [15:0]).
+      // RX accumulate CHUNK-wide (shift-right: first chunk ends at LSB).
       if (io_mainbandLaneIO_rxData_valid) begin
-        rx_acc <= {io_mainbandLaneIO_rxData_bits, rx_acc[511:16]};
-        if (rx_cnt == 6'd31) begin
+        rx_acc <= {io_mainbandLaneIO_rxData_bits, rx_acc[511:CHUNK]};
+        if (rx_cnt == 6'(NCHUNK-1)) begin
           if (rx_left != 3'd0) begin
             rx_ovf <= 1'b1; // no room: drop (back-to-back flits)
           end else begin
-            rx_out <= {io_mainbandLaneIO_rxData_bits, rx_acc[511:16]};
+            rx_out <= {io_mainbandLaneIO_rxData_bits, rx_acc[511:CHUNK]};
             rx_left <= 3'd4;
           end
           rx_cnt <= 6'd0;

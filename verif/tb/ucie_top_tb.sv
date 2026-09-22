@@ -88,7 +88,9 @@ module ucie_top_tb;
     .io_sbAfe_rxData(sb_rx),
     .io_sbAfe_rxClock(1'b0),
     .io_sbAfe_rxEn(tb_sbRxEn),
-    .io_sbAfe_pllLock(1'b1)
+    .io_sbAfe_pllLock(1'b1),
+    .o_flit_link_error(),
+    .o_flit_overflow()
   );
 
   always #5 HCLK = ~HCLK;

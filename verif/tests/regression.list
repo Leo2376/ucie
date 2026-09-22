@@ -1,0 +1,10 @@
+# UCIe regression list — run via `make regress` in verif/sim.
+# Each line: <make-target> <expected-PASS-substring>
+lint LINT
+sim SMOKE
+flit FLIT
+flit_path FLITPATH
+flit_stress FLITSTRESS
+link_mgmt LINKMGMT
+lane_pll LANEPLL
+link LINKBRINGUP

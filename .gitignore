@@ -1,7 +1,7 @@
 # UCIe RTL simulators / tools
-obj_dir/
-obj_dir_tb/
+obj_dir*/
 simv_tb
+simv_*
 *.vcd
 *.fst
 *.fsdb

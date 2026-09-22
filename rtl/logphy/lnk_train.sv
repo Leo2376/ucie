@@ -265,7 +265,11 @@ module lnk_train(
   assign io_sidebandFSMIO_packetTxData_valid = sbMsgWrapper_io_laneIO_txData_valid;
   assign io_sidebandFSMIO_packetTxData_bits = sbMsgWrapper_io_laneIO_txData_bits;
   assign io_sidebandFSMIO_rxMode = _io_sidebandFSMIO_rxMode_T_8 ? 1'h0 : 1'h1;
-  assign io_sidebandFSMIO_txMode = io_sidebandFSMIO_rxMode;
+  // TX source: raw pattern path only during pattern substates; the
+  // packet (switcher) path everywhere else. The old txMode=rxMode left
+  // message-substate packets (SBINIT 2/3) with nowhere to go.
+  wire _tx_raw_T = 3'h1 == currentState & (3'h0 == sbInitSubState | 3'h1 == sbInitSubState);
+  assign io_sidebandFSMIO_txMode = _tx_raw_T ? 1'h0 : 1'h1;
   assign io_rdi_rdiBringupIO_plStateStatus = rdiBringup_io_rdiIO_plStateStatus;
   assign io_rdi_rdiBringupIO_plStallReq = rdiBringup_io_rdiIO_plStallReq;
   assign io_currentState = currentState;

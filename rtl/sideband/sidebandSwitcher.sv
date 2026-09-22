@@ -54,7 +54,7 @@ module sidebandSwitcher(
   wire  outer_layer_to_node_below_subswitch_io_node_to_node_ready;
   wire  outer_layer_to_node_below_subswitch_io_node_to_node_valid;
   wire [127:0] outer_layer_to_node_below_subswitch_io_node_to_node_bits;
-  sidebandOneInTwoOutSwitch outer_node_to_layer_below_subswitch (
+  sidebandOneInTwoOutSwitch #(.ROUTE_ALL_INNER(1)) outer_node_to_layer_below_subswitch (
     .io_outer_node_to_layer_ready(outer_node_to_layer_below_subswitch_io_outer_node_to_layer_ready),
     .io_outer_node_to_layer_valid(outer_node_to_layer_below_subswitch_io_outer_node_to_layer_valid),
     .io_outer_node_to_layer_bits(outer_node_to_layer_below_subswitch_io_outer_node_to_layer_bits),
@@ -98,8 +98,15 @@ module sidebandSwitcher(
     .io_node_to_node_valid(outer_layer_to_node_below_subswitch_io_node_to_node_valid),
     .io_node_to_node_bits(outer_layer_to_node_below_subswitch_io_node_to_node_bits)
   );
-  assign io_inner_node_to_layer_above_valid = outer_node_to_layer_above_subswitch_io_inner_node_to_layer_valid;
-  assign io_inner_node_to_layer_above_bits = outer_node_to_layer_above_subswitch_io_inner_node_to_layer_bits;
+  // RDI-ingress leg (below) feeds the decode leg (above): the above
+  // leg's own source (FDI outer RX) is tied off, so without this merge
+  // partner packets could never reach link management. Below wins ties
+  // (its source is live); backpressure follows the decode ready.
+  assign io_inner_node_to_layer_above_valid = outer_node_to_layer_above_subswitch_io_inner_node_to_layer_valid |
+    outer_node_to_layer_below_subswitch_io_inner_node_to_layer_valid;
+  assign io_inner_node_to_layer_above_bits = outer_node_to_layer_below_subswitch_io_inner_node_to_layer_valid ?
+    outer_node_to_layer_below_subswitch_io_inner_node_to_layer_bits :
+    outer_node_to_layer_above_subswitch_io_inner_node_to_layer_bits;
   assign io_inner_layer_to_node_below_ready = outer_layer_to_node_below_subswitch_io_inner_layer_to_node_ready;
   assign io_outer_node_to_layer_above_ready = outer_node_to_layer_above_subswitch_io_outer_node_to_layer_ready;
   assign io_outer_layer_to_node_above_valid = outer_layer_to_node_above_subswitch_io_outer_layer_to_node_valid;
@@ -109,7 +116,7 @@ module sidebandSwitcher(
   assign io_outer_layer_to_node_below_bits = outer_layer_to_node_below_subswitch_io_outer_layer_to_node_bits;
   assign outer_node_to_layer_below_subswitch_io_outer_node_to_layer_valid = io_outer_node_to_layer_below_valid;
   assign outer_node_to_layer_below_subswitch_io_outer_node_to_layer_bits = io_outer_node_to_layer_below_bits;
-  assign outer_node_to_layer_below_subswitch_io_inner_node_to_layer_ready = 1'h0;
+  assign outer_node_to_layer_below_subswitch_io_inner_node_to_layer_ready = io_inner_node_to_layer_above_ready;
   assign outer_node_to_layer_below_subswitch_io_node_to_node_ready =
     outer_layer_to_node_above_subswitch_io_node_to_node_ready;
   assign outer_node_to_layer_above_subswitch_io_outer_node_to_layer_valid = io_outer_node_to_layer_above_valid;

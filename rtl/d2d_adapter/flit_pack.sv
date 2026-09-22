@@ -39,6 +39,11 @@ module flit_pack #(
   output wire [7:0]  cur_seq
 );
   localparam int CNT_W = 3; // 0..7
+  // 256B path (WORDS_PER_FLIT=32) needs a 2048b datapath; this 512b block
+  // stays 7-word. Elaboration check documents the stepping stone.
+  initial begin
+    if (WORDS_PER_FLIT != 7) $error("flit_pack: only WORDS_PER_FLIT=7 (512b) supported; 256B needs wider pack/unpack/slicer");
+  end
 
   reg [63:0] wbuf [0:WORDS_PER_FLIT-1];
   reg [CNT_W-1:0] wcnt;
@@ -46,6 +51,10 @@ module flit_pack #(
   reg [7:0] retry_cnt;
   reg [15:0] timer;
   reg err_reg;
+  // TEMP DEBUG: exact capture/emission counts (same domain as wcnt).
+  reg [31:0] dbg_caps = 0;
+  reg [31:0] dbg_newouts = 0;
+  reg [31:0] dbg_retouts = 0;
 
   // Replay buffer: 16 x 512b + valid + acked.
   reg [511:0] replay_mem [0:REPLAY_DEPTH-1];
@@ -61,7 +70,8 @@ module flit_pack #(
 
   assign payload = {wbuf[6], wbuf[5], wbuf[4], wbuf[3], wbuf[2], wbuf[1], wbuf[0]};
   // New-data header uses current seq; retransmit reuses stored flit as-is.
-  assign hdr = {seq_reg, 4'h0, 6'd7, 14'h0};
+  // len tracks WORDS_PER_FLIT (7 for 512b streaming flits).
+  assign hdr = {seq_reg, 4'h0, WORDS_PER_FLIT[5:0], 14'h0};
 
   ucie_crc32 u_crc (.data({hdr, payload}), .crc(crc));
   assign new_flit = {hdr, payload, crc};
@@ -81,11 +91,20 @@ module flit_pack #(
   wire [511:0] retry_flit = replay_mem[oldest_seq[3:0]];
   wire retry_avail = pending_unacked && replay_vld[oldest_seq[3:0]];
 
-  assign out_valid = have_word || want_idle || (retransmit_due && retry_avail);
+  // Stop-and-wait: a new flit is emitted only with nothing unacked
+  // outstanding. This guarantees in-order delivery (a nack/timeout
+  // retry can never be overtaken by newer flits, so the unpack side
+  // needs no reorder buffer). Pipelining multiple outstanding flits
+  // is future work (needs go-back-N or selective-repeat + reorder).
+  wire new_ok = have_word && !pending_unacked && !err_reg;
+
+  // Once link_error latches the link is quiesced: no new or retry flits
+  // until reset (prevents unbounded retry storms).
+  assign out_valid = !err_reg && (new_ok || want_idle || (retransmit_due && retry_avail));
   assign out_bits = (retransmit_due && retry_avail) ? retry_flit
-      : have_word ? new_flit : idle_flit;
-  assign out_retry = retransmit_due && retry_avail && out_valid;
-  assign in_ready = (wcnt != CNT_W'(WORDS_PER_FLIT)) && !retransmit_due;
+      : new_ok ? new_flit : idle_flit;
+  assign out_retry = !err_reg && retransmit_due && retry_avail && out_valid;
+  assign in_ready = (wcnt != CNT_W'(WORDS_PER_FLIT)) && !retransmit_due && !err_reg;
   assign link_error = err_reg;
   assign cur_seq = seq_reg;
 
@@ -108,6 +127,7 @@ module flit_pack #(
       if (in_valid && in_ready) begin
         wbuf[wcnt] <= in_bits;
         wcnt <= wcnt + 1'b1;
+        dbg_caps <= dbg_caps + 1;
       end
       // ACK frees all entries up to ack_seq (window assumed in-order).
       if (ack_valid) begin
@@ -131,9 +151,13 @@ module flit_pack #(
       if (out_valid && out_ready) begin
         if (retransmit_due && retry_avail) begin
           retry_cnt <= retry_cnt + 8'd1;
-          timer <= TIMEOUT_CYC[15:0];
+          // Latch link_error after MAX_RETRY retransmits (restored: the
+          // stop-and-wait rework had dropped this comparison).
           if (retry_cnt >= 8'(MAX_RETRY)) err_reg <= 1'b1;
-        end else if (have_word) begin
+          timer <= TIMEOUT_CYC[15:0];
+          dbg_retouts <= dbg_retouts + 1;
+        end else if (new_ok) begin
+          dbg_newouts <= dbg_newouts + 1;
           replay_mem[seq_reg[3:0]] <= new_flit;
           replay_vld[seq_reg[3:0]] <= 1'b1;
           replay_acked[seq_reg[3:0]] <= 1'b0;
