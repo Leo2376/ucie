@@ -7,4 +7,5 @@ flit_path FLITPATH
 flit_stress FLITSTRESS
 link_mgmt LINKMGMT
 lane_pll LANEPLL
+ahb_cfg AHBCFG
 link LINKBRINGUP

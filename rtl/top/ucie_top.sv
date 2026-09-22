@@ -29,12 +29,6 @@ module ucie_top #(
   input         io_TLready_to_rcv,
   input         io_fault,
   input         io_soft_reset,
-  output        io_fdi_lpConfig_valid,
-  output [31:0] io_fdi_lpConfig_bits,
-  input         io_fdi_lpConfigCredit,
-  input         io_fdi_plConfig_valid,
-  input  [31:0] io_fdi_plConfig_bits,
-  output        io_fdi_plConfigCredit,
   output        io_fdi_lpStallAck,
   input         io_mbAfe_fifoParams_clk,
   input         io_mbAfe_fifoParams_reset,
@@ -72,6 +66,13 @@ module ucie_top #(
   wire  protocol_io_fdi_lpRxActiveStatus;
   wire  protocol_io_fdi_plStallReq;
   wire  protocol_io_fdi_lpStallAck;
+  wire  protocol_io_fdi_plConfig_valid;
+  wire [31:0] protocol_io_fdi_plConfig_bits;
+  wire  protocol_io_fdi_plConfigCredit;
+  wire  protocol_io_fdi_lpConfig_valid;
+  wire [31:0] protocol_io_fdi_lpConfig_bits;
+  wire  protocol_io_fdi_lpConfigCredit;
+  wire  protocol_io_link_error;
   wire  protocol_io_lpData_irdy;
   wire [3:0] protocol_io_plStateStatus;
   wire [63:0] protocol_io_plData_bits;
@@ -97,6 +98,12 @@ module ucie_top #(
   wire  d2dadapter_io_fdi_lpRxActiveStatus;
   wire  d2dadapter_io_fdi_plStallReq;
   wire  d2dadapter_io_fdi_lpStallAck;
+  wire  d2dadapter_io_fdi_plConfig_valid;
+  wire [31:0] d2dadapter_io_fdi_plConfig_bits;
+  wire  d2dadapter_io_fdi_plConfigCredit;
+  wire  d2dadapter_io_fdi_lpConfig_valid;
+  wire [31:0] d2dadapter_io_fdi_lpConfig_bits;
+  wire  d2dadapter_io_fdi_lpConfigCredit;
   wire  d2dadapter_io_rdi_lpData_ready;
   wire  d2dadapter_io_rdi_lpData_valid;
   wire  d2dadapter_io_rdi_lpData_irdy;
@@ -186,7 +193,14 @@ module ucie_top #(
     .io_fdi_plRxActiveReq(protocol_io_fdi_plRxActiveReq),
     .io_fdi_lpRxActiveStatus(protocol_io_fdi_lpRxActiveStatus),
     .io_fdi_plStallReq(protocol_io_fdi_plStallReq),
-    .io_fdi_lpStallAck(protocol_io_fdi_lpStallAck)
+    .io_fdi_lpStallAck(protocol_io_fdi_lpStallAck),
+    .io_link_error(protocol_io_link_error),
+    .io_fdi_plConfig_valid(protocol_io_fdi_plConfig_valid),
+    .io_fdi_plConfig_bits(protocol_io_fdi_plConfig_bits),
+    .io_fdi_plConfigCredit(protocol_io_fdi_plConfigCredit),
+    .io_fdi_lpConfig_valid(protocol_io_fdi_lpConfig_valid),
+    .io_fdi_lpConfig_bits(protocol_io_fdi_lpConfig_bits),
+    .io_fdi_lpConfigCredit(protocol_io_fdi_lpConfigCredit)
   );
   d2d_adapt #(.USE_FLIT(USE_FLIT), .RDI_W(RDI_W)) d2dadapter (
     .clock(d2dadapter_clock),
@@ -205,6 +219,12 @@ module ucie_top #(
     .io_fdi_lpRxActiveStatus(d2dadapter_io_fdi_lpRxActiveStatus),
     .io_fdi_plStallReq(d2dadapter_io_fdi_plStallReq),
     .io_fdi_lpStallAck(d2dadapter_io_fdi_lpStallAck),
+    .io_fdi_plConfig_valid(d2dadapter_io_fdi_plConfig_valid),
+    .io_fdi_plConfig_bits(d2dadapter_io_fdi_plConfig_bits),
+    .io_fdi_plConfigCredit(d2dadapter_io_fdi_plConfigCredit),
+    .io_fdi_lpConfig_valid(d2dadapter_io_fdi_lpConfig_valid),
+    .io_fdi_lpConfig_bits(d2dadapter_io_fdi_lpConfig_bits),
+    .io_fdi_lpConfigCredit(d2dadapter_io_fdi_lpConfigCredit),
     .io_rdi_lpData_ready(d2dadapter_io_rdi_lpData_ready),
     .io_rdi_lpData_valid(d2dadapter_io_rdi_lpData_valid),
     .io_rdi_lpData_irdy(d2dadapter_io_rdi_lpData_irdy),
@@ -263,10 +283,20 @@ module ucie_top #(
     .io_sbAfe_rxClock(logPhy_io_sbAfe_rxClock),
     .io_sbAfe_pllLock(logPhy_io_sbAfe_pllLock)
   );
-  assign io_fdi_lpConfig_valid = 1'h0;
-  assign io_fdi_lpConfig_bits = 32'h0;
-  assign io_fdi_plConfigCredit = 1'h0;
+  // FDI config legs: host mailbox <-> D2D sideband (were tied off).
+  // The discrete top-level config ports are gone: the host reaches the
+  // config fabric only through the AHB mailbox in ahb_fdi.
+  assign d2dadapter_io_fdi_plConfig_valid = protocol_io_fdi_plConfig_valid;
+  assign d2dadapter_io_fdi_plConfig_bits = protocol_io_fdi_plConfig_bits;
+  assign protocol_io_fdi_plConfigCredit = d2dadapter_io_fdi_plConfigCredit;
+  assign protocol_io_fdi_lpConfig_valid = d2dadapter_io_fdi_lpConfig_valid;
+  assign protocol_io_fdi_lpConfig_bits = d2dadapter_io_fdi_lpConfig_bits;
+  assign d2dadapter_io_fdi_lpConfigCredit = protocol_io_fdi_lpConfigCredit;
   assign io_fdi_lpStallAck = protocol_io_fdi_lpStallAck;
+  // Flit link_error surfaces at top and drives AHB HRESP via protocol.
+  assign o_flit_link_error = d2d_flit_link_error;
+  assign o_flit_overflow = d2d_flit_overflow;
+  assign protocol_io_link_error = d2d_flit_link_error;
   assign protocol_io_lpData_irdy = io_TLlpData_irdy;
   assign io_TLplStateStatus = protocol_io_plStateStatus;
   assign io_TLplData_bits = protocol_io_plData_bits;
@@ -282,9 +312,6 @@ module ucie_top #(
   assign io_sbAfe_txData = logPhy_io_sbAfe_txData;
   assign io_sbAfe_txClock = logPhy_io_sbAfe_txClock;
   assign io_sbAfe_rxEn = 1'h1;
-  // Flit error surfaces: retry-exceeded + reassembly overflow.
-  assign o_flit_link_error = d2d_flit_link_error;
-  assign o_flit_overflow = d2d_flit_overflow;
   assign hreset = ~HRESETn;
   assign protocol_io_fdi_lpData_ready = d2dadapter_io_fdi_lpData_ready;
   assign protocol_io_fdi_plData_valid = d2dadapter_io_fdi_plData_valid;

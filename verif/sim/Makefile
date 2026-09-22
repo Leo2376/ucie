@@ -9,8 +9,9 @@ FLITPATHFILELIST := filelist_flitpath.f
 FLITSTRESSFILELIST := filelist_flitstress.f
 LINKMGMTFILELIST := filelist_linkmgmt.f
 LANEPLLFILELIST := filelist_lanepll.f
+AHBCFGFILELIST := filelist_ahbcfg.f
 
-.PHONY: lint sim sniff link flit flit_path flit_stress link_mgmt lane_pll regress clean
+.PHONY: lint sim sniff link flit flit_path flit_stress link_mgmt lane_pll ahb_cfg regress clean
 
 lint:
 	verilator --lint-only -f $(FILELIST) --top-module $(TOP) --timing
@@ -54,6 +55,11 @@ lane_pll:
 	verilator --binary --timing -j 0 -f $(LANEPLLFILELIST) --top-module lane_pll_tb \
 	  -Mdir obj_dir_lanepll -o simv_lanepll --build -Wno-TIMESCALEMOD
 	./obj_dir_lanepll/simv_lanepll
+
+ahb_cfg:
+	verilator --binary --timing -j 0 -f $(AHBCFGFILELIST) --top-module ahb_cfg_tb \
+	  -Mdir obj_dir_ahbcfg -o simv_ahbcfg --build -Wno-TIMESCALEMOD
+	./obj_dir_ahbcfg/simv_ahbcfg
 
 regress:
 	./regress.sh

@@ -127,10 +127,16 @@ module sidebandSwitcher(
   assign outer_layer_to_node_above_subswitch_io_outer_layer_to_node_ready = io_outer_layer_to_node_above_ready;
   assign outer_layer_to_node_above_subswitch_io_inner_layer_to_node_valid = 1'h0;
   assign outer_layer_to_node_above_subswitch_io_inner_layer_to_node_bits = 128'h0;
+  // Host tap (docs/cfg_spec.md): RDI-ingress packets are copied to the
+  // above node_to_node leg (FDI node -> host RX mailbox). The previous
+  // source (below node_to_node) is dead under ROUTE_ALL_INNER, so the
+  // host RX leg never saw traffic. Single-pulse broadcast: lossy if the
+  // host stalls; the decode path is unaffected. The ready return below
+  // (line ~120) is irrelevant (dead branch, valid stuck 0).
   assign outer_layer_to_node_above_subswitch_io_node_to_node_valid =
-    outer_node_to_layer_below_subswitch_io_node_to_node_valid;
+    io_outer_node_to_layer_below_valid;
   assign outer_layer_to_node_above_subswitch_io_node_to_node_bits =
-    outer_node_to_layer_below_subswitch_io_node_to_node_bits;
+    io_outer_node_to_layer_below_bits;
   assign outer_layer_to_node_below_subswitch_io_outer_layer_to_node_ready = io_outer_layer_to_node_below_ready;
   assign outer_layer_to_node_below_subswitch_io_inner_layer_to_node_valid = io_inner_layer_to_node_below_valid;
   assign outer_layer_to_node_below_subswitch_io_inner_layer_to_node_bits = io_inner_layer_to_node_below_bits;

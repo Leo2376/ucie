@@ -50,7 +50,7 @@ module lane_pll_tb;
   always #5 HCLK = ~HCLK;
   wire [63:0] b_hrdata; wire b_hr, b_resp;
   wire [3:0] b_state; wire [63:0] b_pldata; wire b_plvld;
-  wire b_lpCfgV, b_plCfgC, b_stall, b_mbTxV, b_mbRxR, b_mbRxEn, b_sbTx, b_sbClk, b_sbEn;
+  wire b_stall, b_mbTxV, b_mbRxR, b_mbRxEn, b_sbTx, b_sbClk, b_sbEn;
   wire [15:0] b_mbTxB; wire [2:0] b_mbFreq;
   ucie_top dut_top (
     .HCLK(HCLK), .HRESETn(HRESETn),
@@ -60,10 +60,7 @@ module lane_pll_tb;
     .io_TLlpData_irdy(1'b1), .io_TLplStateStatus(b_state),
     .io_TLplData_bits(b_pldata), .io_TLplData_valid(b_plvld),
     .io_TLready_to_rcv(1'b1), .io_fault(1'b0), .io_soft_reset(1'b0),
-    .io_fdi_lpConfigCredit(1'b0), .io_fdi_plConfig_valid(1'b0),
-    .io_fdi_plConfig_bits(32'h0),
-    .io_fdi_lpConfig_valid(b_lpCfgV), .io_fdi_lpConfig_bits(),
-    .io_fdi_plConfigCredit(b_plCfgC), .io_fdi_lpStallAck(b_stall),
+    .io_fdi_lpStallAck(b_stall),
     .io_mbAfe_fifoParams_clk(HCLK), .io_mbAfe_fifoParams_reset(~HRESETn),
     .io_mbAfe_txData_ready(1'b1), .io_mbAfe_txData_valid(b_mbTxV),
     .io_mbAfe_txData_bits_0(b_mbTxB), .io_mbAfe_rxData_ready(b_mbRxR),

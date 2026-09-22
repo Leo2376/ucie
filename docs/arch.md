@@ -28,3 +28,17 @@
 * Known limits: SB RX queues have no flush on state change (partner
   BFM uses dup-suppression); 256B flits need a wider datapath
   (`WORDS_PER_FLIT=32` elaboration-checked, still 512b).
+
+## Phase 4 (Sep 2026): host config path
+
+* `ahb_fdi` MMIO mailbox (`docs/cfg_spec.md`): `HADDR[31]` selects
+  streaming vs config (data/status); 4-deep TX/RX packet buffers;
+  `HREADYOUT` backpressure on TX-full; `HRESP = link_error` (level).
+* Fabric: `d2d_adapt` + `d2d_sb` FDI legs live (were tied off); host TX
+  -> RDI node (`node_to_node` chain); host RX via new tap
+  (`sidebandSwitcher` above-`node_to_node` <- RDI ingress, lossy if the
+  host stalls, decode unaffected). Discrete top config ports removed:
+  host IF is AHB-only now.
+* `ahb_cfg_tb` (20 checks): TX e2e to RDI ser, backpressure/credit,
+  RX round trip, mgmt no-credit, overrun sticky+clear, tap order,
+  HRESP on retry-exhaustion + clear on reset.

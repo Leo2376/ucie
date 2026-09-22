@@ -38,8 +38,7 @@ module flit_stress_tb;
 
   reg sb_rx = 1'b0;
   reg sb_rxc = 1'b0;
-  wire tb_lpCfg_valid, tb_plCfgCredit, tb_stallAck;
-  wire [31:0] tb_lpCfg_bits;
+  wire tb_stallAck;
   wire tb_mbTxValid, tb_mbRxRdy, tb_mbRxEn, tb_sbTx, tb_sbTxClk, tb_sbRxEn;
   wire [15:0] tb_mbTxBits;
   wire [2:0] tb_mbFreq;
@@ -68,12 +67,6 @@ module flit_stress_tb;
     .io_TLready_to_rcv(tb_rdy2rcv),
     .io_fault(tb_fault),
     .io_soft_reset(tb_soft_rst),
-    .io_fdi_lpConfigCredit(1'b0),
-    .io_fdi_plConfig_valid(1'b0),
-    .io_fdi_plConfig_bits(32'h0),
-    .io_fdi_lpConfig_valid(tb_lpCfg_valid),
-    .io_fdi_lpConfig_bits(tb_lpCfg_bits),
-    .io_fdi_plConfigCredit(tb_plCfgCredit),
     .io_fdi_lpStallAck(tb_stallAck),
     .io_mbAfe_fifoParams_clk(HCLK),
     .io_mbAfe_fifoParams_reset(~HRESETn),

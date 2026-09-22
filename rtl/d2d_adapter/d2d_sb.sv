@@ -7,6 +7,15 @@ module d2d_sb(
   output [31:0] io_rdi_lp_cfg,
   output        io_rdi_lp_cfg_vld,
   input         io_rdi_lp_cfg_crd,
+  // FDI config legs (host mailbox, docs/cfg_spec.md). Previously tied
+  // off; now live: host TX flows to the RDI node (node_to_node chain),
+  // RDI-ingress is tapped to the host RX (see sidebandSwitcher).
+  input  [31:0] io_fdi_pl_cfg,
+  input         io_fdi_pl_cfg_vld,
+  output        io_fdi_pl_cfg_crd,
+  output [31:0] io_fdi_lp_cfg,
+  output        io_fdi_lp_cfg_vld,
+  input         io_fdi_lp_cfg_crd,
   output [5:0]  io_sideband_rcv,
   input  [5:0]  io_sideband_snt,
   output        io_sideband_rdy
@@ -154,9 +163,12 @@ module d2d_sb(
   assign fdi_sideband_node_io_inner_layer_to_node_valid = sideband_switch_io_outer_layer_to_node_above_valid;
   assign fdi_sideband_node_io_inner_layer_to_node_bits = sideband_switch_io_outer_layer_to_node_above_bits;
   assign fdi_sideband_node_io_inner_node_to_layer_ready = sideband_switch_io_outer_node_to_layer_above_ready;
-  assign fdi_sideband_node_io_outer_tx_credit = 1'h0;
-  assign fdi_sideband_node_io_outer_rx_bits = 32'h0;
-  assign fdi_sideband_node_io_outer_rx_valid = 1'h0;
+  assign io_fdi_lp_cfg = fdi_sideband_node_io_outer_tx_bits;
+  assign io_fdi_lp_cfg_vld = fdi_sideband_node_io_outer_tx_valid;
+  assign fdi_sideband_node_io_outer_tx_credit = io_fdi_lp_cfg_crd;
+  assign io_fdi_pl_cfg_crd = fdi_sideband_node_io_outer_rx_credit;
+  assign fdi_sideband_node_io_outer_rx_bits = io_fdi_pl_cfg;
+  assign fdi_sideband_node_io_outer_rx_valid = io_fdi_pl_cfg_vld;
   assign rdi_sideband_node_clock = clock;
   assign rdi_sideband_node_reset = reset;
   assign rdi_sideband_node_io_inner_layer_to_node_valid = sideband_switch_io_outer_layer_to_node_below_valid;

@@ -21,6 +21,7 @@ run flit_path FLITPATH make -s flit_path
 run flit_stress FLITSTRESS make -s flit_stress
 run link_mgmt LINKMGMT make -s link_mgmt
 run lane_pll LANEPLL make -s lane_pll
+run ahb_cfg AHBCFG make -s ahb_cfg
 # link bring-up last (30M+ cycle budget)
 run link LINKBRINGUP make -s link
 echo "=== REGRESS DONE pass=$pass fail=$fail ==="

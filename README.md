@@ -77,28 +77,32 @@ RDI endpoint, training, and AFE interfacing:
 | Group | Signals |
 |-------|---------|
 | Clock/reset | `HCLK`, `HRESETn` (active-low, synced to active-high inside) |
-| Host data (AHB-Lite, 64-bit, direct) | `HSEL`, `HWRITE`, `HTRANS`, `HREADY` in; `HWDATA[63:0]` in (Tx flit); `HRDATA[63:0]`, `HREADYOUT`, `HRESP` (=0) out. `HADDR/HSIZE/HBURST` present for compliance, ignored. |
+| Host data (AHB-Lite, 64-bit) | `HSEL`, `HWRITE`, `HTRANS`, `HREADY` in; `HWDATA[63:0]` in; `HRDATA[63:0]`, `HREADYOUT`, `HRESP` (=`link_error`) out. `HADDR[31]` selects streaming (0, `HWDATA`→flit bits) vs config space (1, see below). `HSIZE/HBURST` ignored. |
+| Host config (AHB-Lite, `HADDR[31]`=1) | 32b words in `HWDATA[31:0]`: offset 0 = data (write→`plConfig` packet buffer, read←`lpConfig` buffer, pops), offset 4 = status (`{rx_overflow, link_error, tx_ready, rx_valid}`, write clears overflow). See `docs/cfg_spec.md`. |
 | Host controls (discrete pins) | `io_TLlpData_irdy` in, `io_TLplStateStatus[3:0]` / `io_TLplData_bits[63:0]` / `io_TLplData_valid` out, `io_TLready_to_rcv` / `io_fault` / `io_soft_reset` in |
-| FDI config/stall | 32b `lp/plConfig` valid/bits/credit (currently tied off in top), `lpStallAck` out |
+| FDI stall | `lpStallAck` out (config legs are internal now: AHB mailbox ↔ `d2d_sb` FDI node) |
 | MB-AFE | 16b `txData/rxData`, `txData valid/ready`, `rxData valid/ready`, `rxEn`, `pllLock`, `txFreqSel`, FIFO clk/reset |
 | SB-AFE | `txData`, `txClock`, `rxData`, `rxClock`, `rxEn`, `pllLock`, FIFO clk/reset |
 
 The old TileLink-flavored streaming port (`valid/bits/irdy/ready` +
 `TLready_to_rcv`, `TLplStateStatus`, `fault`, `soft_reset`) is gone,
 replaced by the native AHB map above. See
-`rtl/top/ucie_top.sv` and `rtl/protocol/ahb_fdi.sv`.
+`rtl/top/ucie_top.sv` and `rtl/protocol/ahb_fdi.sv`. The discrete
+top-level FDI config ports are gone: the host reaches the config fabric
+only through the AHB mailbox (4-word TX/RX buffers, credit handshake per
+`docs/cfg_spec.md`, `HRESP`=`link_error`).
 
-Note: top-level config ports are stubbed (`lpConfig=0`,
-`plConfigCredit=0`); intended for bring-up before config fabric is attached.
-
-## Host interface: AHB streaming (done, native, direct)
+## Host interface: AHB streaming + config mailbox
 
 The TileLink-style data port was replaced by a native AMBA AHB-Lite
-64-bit streaming port — no bridge, no register file. The AHB data phase
-drives the FDI streaming port directly (`HWDATA`→flit bits,
-`HREADYOUT`→ready, `HRDATA`←Rx bits); link controls stay as discrete
-pins (`irdy`, `plStateStatus`, `plData`, `ready_to_rcv`, `fault`,
-`soft_reset`). Internal FDI/RDI streaming is unchanged behind it.
+64-bit port. `HADDR[31]`=0 is the streaming flit port — no bridge, no
+register file: the AHB data phase drives the FDI streaming port directly
+(`HWDATA`→flit bits, `HREADYOUT`→ready, `HRDATA`←Rx bits); link controls
+stay as discrete pins (`irdy`, `plStateStatus`, `plData`, `ready_to_rcv`,
+`fault`, `soft_reset`). `HADDR[31]`=1 is the config mailbox: 32b
+sideband-packet words in/out plus a status register (`rx_valid`,
+`tx_ready`, `link_error`, `rx_overflow`). Internal FDI/RDI streaming is
+unchanged behind it.
 
 ## Repository layout
 
@@ -182,6 +186,7 @@ pulse. No link partner is modeled yet, so no AFE traffic is expected.
 * [x] Phase 1 flit reliability: `MAX_RETRY->link_error` + quiesce, `fmt` decode, `exp_seq` duplicate suppression, `o_flit_link_error/o_flit_overflow` on top, `GATE_ACTIVE` param
 * [x] Phase 2 link-mgmt directed tests (`link_mgmt_tb`: PARAM/ACTIVE, LINKRESET 0x09/0x19, DISABLE 0x0C/0x1C, parity 0x21/0x31/0x32 + enables, RETRAIN observation); full SB bring-up (`sb_link_tb`) unchanged
 * [x] Phase 3 PHY: `NLANES` param end to end (default 1, target 16), `lane_pll_tb` (4-lane async-FIFO loopback, pllLock=0 negative, rdi overwrite flag)
+* [x] Phase 4 host+config: AHB MMIO mailbox (`docs/cfg_spec.md`, 4-word TX/RX, credit handshake, `HRESP`=`link_error`), FDI config wired through `d2d_adapt`/`d2d_sb`, host tap in `sidebandSwitcher`, `ahb_cfg_tb` (TX e2e, backpressure, RX/mgmt/overrun, HRESP)
 * [ ] Full `make regress` green including `sb_link_tb` bring-up (long)
 * [ ] Sideband transport for cross-die flit ACK/NACK + 256B datapath
 * [ ] First hardened block review (`ahb_fdi` -> style pass)
