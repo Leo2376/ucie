@@ -10,8 +10,13 @@
 // Stall mirrors d2d_mb: latch while ACTIVE, gate TX both directions.
 // GATE_ACTIVE=0 (default): data flows unstalled without bring-up (test).
 // GATE_ACTIVE=1: TX/RX gated on d2d_state==ACTIVE (production).
+// REMOTE_ACK=0 (default): pack consumes the on-die unpack ack/nack
+// (all existing TBs). =1: cross-die mode, pack consumes the decoded
+// partner ack/nack from the sideband and the local unpack output goes
+// to the sideband encoder (docs/ack_spec.md).
 module d2d_mb_flit #(
-  parameter GATE_ACTIVE = 0
+  parameter GATE_ACTIVE = 0,
+  parameter REMOTE_ACK = 0
 ) (
   input         clock,
   input         reset,
@@ -33,7 +38,14 @@ module d2d_mb_flit #(
   input         io_mainband_stallreq,
   output        io_mainband_stalldone,
   output        io_link_error,
-  output        io_reasm_overflow
+  output        io_reasm_overflow,
+  // Cross-die ACK/NACK (sideband codec in d2d_sb via d2d_adapt).
+  output        io_ack_tx_valid,
+  output [7:0]  io_ack_tx_seq,
+  output        io_nack_tx,
+  input         io_ack_rx_valid,
+  input  [7:0]  io_ack_rx_seq,
+  input         io_nack_rx
 );
   reg stall_reg;
   wire stalled = stall_reg;
@@ -46,9 +58,15 @@ module d2d_mb_flit #(
   wire [511:0] pack_out_bits;
   wire slice_in_ready, slice_out_valid, slice_out_last;
   wire [127:0] slice_out_bits;
-  // RX feedback (local loopback until bullet 5 sideband ACK).
+  // RX feedback: local loopback (REMOTE_ACK=0) or cross-die sideband.
   wire up_ack_valid, up_nack;
   wire [7:0] up_ack_seq;
+  wire pack_ack_valid = (REMOTE_ACK != 0) ? io_ack_rx_valid : up_ack_valid;
+  wire [7:0] pack_ack_seq = (REMOTE_ACK != 0) ? io_ack_rx_seq : up_ack_seq;
+  wire pack_nack = (REMOTE_ACK != 0) ? io_nack_rx : up_nack;
+  assign io_ack_tx_valid = up_ack_valid;
+  assign io_ack_tx_seq = up_ack_seq;
+  assign io_nack_tx = up_nack;
 
   flit_pack u_pack (
     .clock(clock), .reset(reset),
@@ -59,7 +77,7 @@ module d2d_mb_flit #(
     .out_ready(slice_in_ready),
     .out_valid(pack_out_valid), .out_bits(pack_out_bits),
     .out_retry(pack_out_retry),
-    .ack_valid(up_ack_valid), .ack_seq(up_ack_seq), .nack(up_nack),
+    .ack_valid(pack_ack_valid), .ack_seq(pack_ack_seq), .nack(pack_nack),
     .link_error(pack_link_error), .cur_seq()
   );
 

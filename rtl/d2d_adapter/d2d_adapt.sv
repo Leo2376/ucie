@@ -1,6 +1,8 @@
 module d2d_adapt #(
   parameter USE_FLIT = 0,
-  parameter RDI_W = 64
+  parameter RDI_W = 64,
+  parameter REMOTE_ACK = 0,
+  parameter GATE_ACTIVE = 0
 ) (
   input         clock,
   input         reset,
@@ -197,7 +199,13 @@ module d2d_adapt #(
     .io_fdi_lp_cfg_crd(io_fdi_lpConfigCredit),
     .io_sideband_rcv(d2d_sideband_io_sideband_rcv),
     .io_sideband_snt(d2d_sideband_io_sideband_snt),
-    .io_sideband_rdy(d2d_sideband_io_sideband_rdy)
+    .io_sideband_rdy(d2d_sideband_io_sideband_rdy),
+    .io_ack_tx_valid(flit_ack_tx_valid),
+    .io_ack_tx_seq(flit_ack_tx_seq),
+    .io_nack_tx(flit_nack_tx),
+    .io_ack_rx_valid(sb_ack_rx_valid),
+    .io_ack_rx_seq(sb_ack_rx_seq),
+    .io_nack_rx(sb_nack_rx)
   );
   d2d_mb d2d_mainband (
     .clock(d2d_mainband_clock),
@@ -336,9 +344,17 @@ module d2d_adapt #(
   wire flit_stalldone;
   wire flit_link_err;
   wire flit_overflow;
+  // Cross-die ACK/NACK (docs/ack_spec.md). Codec always instantiated in
+  // d2d_sb; flit side tied off when USE_FLIT=0.
+  wire flit_ack_tx_valid;
+  wire [7:0] flit_ack_tx_seq;
+  wire flit_nack_tx;
+  wire sb_ack_rx_valid;
+  wire [7:0] sb_ack_rx_seq;
+  wire sb_nack_rx;
   generate
     if (USE_FLIT != 0) begin : gen_flit
-      d2d_mb_flit u_mb_flit (
+      d2d_mb_flit #(.GATE_ACTIVE(GATE_ACTIVE), .REMOTE_ACK(REMOTE_ACK)) u_mb_flit (
         .clock(clock),
         .reset(reset),
         .io_fdi_lp_irdy(io_fdi_lpData_irdy),
@@ -357,7 +373,13 @@ module d2d_adapt #(
         .io_mainband_stallreq(rdi_stall_handler_io_mainband_stallreq),
         .io_mainband_stalldone(flit_stalldone),
         .io_link_error(flit_link_err),
-        .io_reasm_overflow(flit_overflow)
+        .io_reasm_overflow(flit_overflow),
+        .io_ack_tx_valid(flit_ack_tx_valid),
+        .io_ack_tx_seq(flit_ack_tx_seq),
+        .io_nack_tx(flit_nack_tx),
+        .io_ack_rx_valid(sb_ack_rx_valid),
+        .io_ack_rx_seq(sb_ack_rx_seq),
+        .io_nack_rx(sb_nack_rx)
       );
     end else begin : gen_noflit
       assign flit_fdi_trdy = 1'b1;
@@ -369,6 +391,10 @@ module d2d_adapt #(
       assign flit_stalldone = 1'b0;
       assign flit_link_err = 1'b0;
       assign flit_overflow = 1'b0;
+      assign flit_ack_tx_valid = 1'b0;
+      assign flit_ack_tx_seq = 8'h0;
+      assign flit_nack_tx = 1'b0;
+      wire _unused_ack = &{sb_ack_rx_valid, sb_ack_rx_seq, sb_nack_rx, 1'b0};
     end
   endgenerate
   assign io_flit_link_error = (USE_FLIT != 0) ? flit_link_err : 1'b0;

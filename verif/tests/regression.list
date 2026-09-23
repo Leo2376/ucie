@@ -8,4 +8,9 @@ flit_stress FLITSTRESS
 link_mgmt LINKMGMT
 lane_pll LANEPLL
 ahb_cfg AHBCFG
+ack_xchg ACKXCHG
+xcross XCROSS
+linkinit_xchg LINKINITXCHG
+d2d_dual D2DDUAL
 link LINKBRINGUP
+flit_dual FLITDUAL

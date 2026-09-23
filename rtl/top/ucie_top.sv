@@ -7,7 +7,9 @@
 //   pinouts are unchanged in both modes.
 module ucie_top #(
   parameter USE_FLIT = 0,
-  parameter NLANES = 1
+  parameter NLANES = 1,
+  parameter REMOTE_ACK = 0,
+  parameter GATE_ACTIVE = 0
 ) (
   input         HCLK,
   input         HRESETn,
@@ -202,7 +204,8 @@ module ucie_top #(
     .io_fdi_lpConfig_bits(protocol_io_fdi_lpConfig_bits),
     .io_fdi_lpConfigCredit(protocol_io_fdi_lpConfigCredit)
   );
-  d2d_adapt #(.USE_FLIT(USE_FLIT), .RDI_W(RDI_W)) d2dadapter (
+  d2d_adapt #(.USE_FLIT(USE_FLIT), .RDI_W(RDI_W), .REMOTE_ACK(REMOTE_ACK),
+              .GATE_ACTIVE(GATE_ACTIVE)) d2dadapter (
     .clock(d2dadapter_clock),
     .reset(d2dadapter_reset),
     .io_fdi_lpData_ready(d2dadapter_io_fdi_lpData_ready),

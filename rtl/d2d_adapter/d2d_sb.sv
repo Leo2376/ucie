@@ -18,7 +18,16 @@ module d2d_sb(
   input         io_fdi_lp_cfg_crd,
   output [5:0]  io_sideband_rcv,
   input  [5:0]  io_sideband_snt,
-  output        io_sideband_rdy
+  output        io_sideband_rdy,
+  // Flit ACK/NACK codec (docs/ack_spec.md). TX: local unpack feedback
+  // encoded into D2D-domain sideband packets toward the partner.
+  // RX: partner packets decoded into the local pack feedback.
+  input         io_ack_tx_valid,
+  input  [7:0]  io_ack_tx_seq,
+  input         io_nack_tx,
+  output        io_ack_rx_valid,
+  output [7:0]  io_ack_rx_seq,
+  output        io_nack_rx
 );
   wire  fdi_sideband_node_clock;
   wire  fdi_sideband_node_reset;
@@ -83,6 +92,11 @@ module d2d_sb(
   wire [5:0] _GEN_12 = 128'h80000c012 == _T_3 ? 6'h8 : _GEN_11;
   wire [5:0] _GEN_13 = 128'h40000c012 == _T_3 ? 6'h4 : _GEN_12;
   wire [5:0] _GEN_14 = 128'h10000c012 == _T_1 ? 6'h1 : _GEN_13;
+  // Flit ACK/NACK decode (docs/ack_spec.md). seq rides in [63:56],
+  // which the mask ignores, so one entry matches every seq value.
+  // NOTE: the mask zeroes [31:22], so entries carry only dir+fmt below.
+  wire [5:0] _GEN_32 = 128'h00002A00010012 == _T_1 ? 6'h2A : _GEN_14;
+  wire [5:0] _GEN_33 = 128'h00002B00010012 == _T_1 ? 6'h2B : _GEN_32;
   wire [142:0] _GEN_16 = io_sideband_snt == 6'h24 ? 143'h488000050000002000401b : 143'h500000020000012;
   wire [142:0] _GEN_17 = io_sideband_snt == 6'h32 ? 143'h500000120020012 : _GEN_16;
   wire [142:0] _GEN_18 = io_sideband_snt == 6'h31 ? 143'h500000020020012 : _GEN_17;
@@ -154,8 +168,55 @@ module d2d_sb(
   assign io_rdi_pl_cfg_crd = rdi_sideband_node_io_outer_rx_credit;
   assign io_rdi_lp_cfg = rdi_sideband_node_io_outer_tx_bits;
   assign io_rdi_lp_cfg_vld = rdi_sideband_node_io_outer_tx_valid;
-  assign io_sideband_rcv = sideband_switch_io_inner_node_to_layer_above_valid &
-    sideband_switch_io_inner_node_to_layer_above_ready ? _GEN_14 : 6'h0;
+  // Link-mgmt decode never sees ACK/NACK (masked to 0 here); they go to
+  // the flit pack instead (edge-detected below).
+  wire [5:0] decoded_op = _GEN_33;
+  wire dec_strobe = sideband_switch_io_inner_node_to_layer_above_valid &
+    sideband_switch_io_inner_node_to_layer_above_ready;
+  wire dec_is_ack = dec_strobe && (decoded_op == 6'h2A);
+  wire dec_is_nack = dec_strobe && (decoded_op == 6'h2B);
+  assign io_sideband_rcv = dec_strobe ?
+    ((decoded_op == 6'h2A || decoded_op == 6'h2B) ? 6'h0 : decoded_op) : 6'h0;
+  assign io_ack_rx_valid = dec_is_ack && !dec_ack_prev;
+  assign io_ack_rx_seq = sideband_switch_io_inner_node_to_layer_above_bits[63:56];
+  assign io_nack_rx = dec_is_nack && !dec_nack_prev;
+  reg dec_ack_prev;
+  reg dec_nack_prev;
+  // ACK/NACK TX pending (set by unpack pulses, cleared when taken).
+  reg ack_pend;
+  reg [7:0] ack_seq_r;
+  reg nack_pend;
+  wire use_mgmt = (io_sideband_snt != 6'h0);
+  wire nack_send = !use_mgmt && nack_pend;
+  wire ack_send = !use_mgmt && !nack_pend && ack_pend;
+  wire [142:0] ack_tpl = {15'h0, 64'h0, ack_seq_r, 8'h00, 8'h00, 8'h2A,
+    10'h080, 8'h04, 9'h0, 1'b1, 4'h2};
+  wire [142:0] nack_tpl = {15'h0, 64'h0, 8'h00, 8'h00, 8'h00, 8'h2B,
+    10'h080, 8'h04, 9'h0, 1'b1, 4'h2};
+  wire below_inner_rdy = sideband_switch_io_inner_layer_to_node_below_ready;
+  always @(posedge clock) begin
+    if (reset) begin
+      dec_ack_prev <= 1'b0;
+      dec_nack_prev <= 1'b0;
+      ack_pend <= 1'b0;
+      ack_seq_r <= 8'h0;
+      nack_pend <= 1'b0;
+    end else begin
+      dec_ack_prev <= dec_is_ack;
+      dec_nack_prev <= dec_is_nack;
+      if (io_ack_tx_valid) begin
+        ack_pend <= 1'b1;
+        ack_seq_r <= io_ack_tx_seq;
+      end else if (ack_send && below_inner_rdy) begin
+        ack_pend <= 1'b0;
+      end
+      if (io_nack_tx) begin
+        nack_pend <= 1'b1;
+      end else if (nack_send && below_inner_rdy) begin
+        nack_pend <= 1'b0;
+      end
+    end
+  end
   assign io_sideband_rdy = io_sideband_snt != 6'h0 & (sideband_switch_io_inner_layer_to_node_below_valid &
     sideband_switch_io_inner_layer_to_node_below_ready);
   assign fdi_sideband_node_clock = clock;
@@ -178,8 +239,11 @@ module d2d_sb(
   assign rdi_sideband_node_io_outer_rx_bits = io_rdi_pl_cfg;
   assign rdi_sideband_node_io_outer_rx_valid = io_rdi_pl_cfg_vld;
   assign sideband_switch_io_inner_node_to_layer_above_ready = 1'h1;
-  assign sideband_switch_io_inner_layer_to_node_below_valid = io_sideband_snt != 6'h0;
-  assign sideband_switch_io_inner_layer_to_node_below_bits = _GEN_31[127:0];
+  // TX source: link-mgmt template, else pending NACK, else pending ACK.
+  assign sideband_switch_io_inner_layer_to_node_below_valid =
+    use_mgmt || nack_send || ack_send;
+  assign sideband_switch_io_inner_layer_to_node_below_bits = use_mgmt ? _GEN_31[127:0]
+    : nack_send ? nack_tpl[127:0] : ack_tpl[127:0];
   assign sideband_switch_io_outer_node_to_layer_above_valid = fdi_sideband_node_io_inner_node_to_layer_valid;
   assign sideband_switch_io_outer_node_to_layer_above_bits = fdi_sideband_node_io_inner_node_to_layer_bits;
   assign sideband_switch_io_outer_layer_to_node_above_ready = fdi_sideband_node_io_inner_layer_to_node_ready;

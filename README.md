@@ -187,6 +187,8 @@ pulse. No link partner is modeled yet, so no AFE traffic is expected.
 * [x] Phase 2 link-mgmt directed tests (`link_mgmt_tb`: PARAM/ACTIVE, LINKRESET 0x09/0x19, DISABLE 0x0C/0x1C, parity 0x21/0x31/0x32 + enables, RETRAIN observation); full SB bring-up (`sb_link_tb`) unchanged
 * [x] Phase 3 PHY: `NLANES` param end to end (default 1, target 16), `lane_pll_tb` (4-lane async-FIFO loopback, pllLock=0 negative, rdi overwrite flag)
 * [x] Phase 4 host+config: AHB MMIO mailbox (`docs/cfg_spec.md`, 4-word TX/RX, credit handshake, `HRESP`=`link_error`), FDI config wired through `d2d_adapt`/`d2d_sb`, host tap in `sidebandSwitcher`, `ahb_cfg_tb` (TX e2e, backpressure, RX/mgmt/overrun, HRESP)
+* [x] Phase 5a-d cross-die ACK/NACK: `docs/ack_spec.md` (0x2A/0x2B, seq in [63:56]), codec in `d2d_sb`, `REMOTE_ACK` plumbing, `sb_ldes` wrap-event fix, `sb_gear` TB wire model; `ack_xchg_tb`, `xcross_tb`, `linkinit_xchg_tb`, `d2d_dual_tb` (+300-cycle latency) all pass
+* [ ] Phase 5e dual-die link: `flit_dual_tb` trains both dies (DUAL TRAINED) but D2D PARAM stalls (both sent once, never received; under debug via stage counters)
 * [ ] Full `make regress` green including `sb_link_tb` bring-up (long)
-* [ ] Sideband transport for cross-die flit ACK/NACK + 256B datapath
+* [ ] 256B datapath
 * [ ] First hardened block review (`ahb_fdi` -> style pass)

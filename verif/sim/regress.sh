@@ -22,7 +22,13 @@ run flit_stress FLITSTRESS make -s flit_stress
 run link_mgmt LINKMGMT make -s link_mgmt
 run lane_pll LANEPLL make -s lane_pll
 run ahb_cfg AHBCFG make -s ahb_cfg
+run ack_xchg ACKXCHG make -s ack_xchg
+run xcross XCROSS make -s xcross
+run linkinit_xchg LINKINITXCHG make -s linkinit_xchg
+run d2d_dual D2DDUAL make -s d2d_dual
 # link bring-up last (30M+ cycle budget)
 run link LINKBRINGUP make -s link
+# dual-die link brings up two PHYs (slowest, very last)
+run flit_dual FLITDUAL make -s flit_dual
 echo "=== REGRESS DONE pass=$pass fail=$fail ==="
 [ "$fail" -eq 0 ]

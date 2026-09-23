@@ -270,10 +270,16 @@ module sb_ldes(
   reg  data_127;
   reg  receiving;
   reg [6:0] recvCount;
-  wire  wrap_wrap = recvCount == 7'h7f;
   wire [6:0] _wrap_value_T_1 = recvCount + 7'h1;
   reg [6:0] recvCount_delay;
-  wire  _GEN_130 = wrap_wrap ? 1'h0 : receiving;
+  // Wrap EVENT (not level): the packet is complete after 128 edges, i.e.
+  // when count wraps 0x7f->0x00. The old level check (count==0x7f)
+  // presented the packet one edge early, dropping bit127 (invisible
+  // until now: every defined sideband packet has bit127==0, and all
+  // matching is on low bits).
+  reg [6:0] prev_count;
+  wire wrapped = (prev_count == 7'h7f) && (recvCount == 7'h00);
+  wire  _GEN_130 = wrapped ? 1'h0 : receiving;
   wire  _T = io_out_ready & io_out_valid;
   wire  _GEN_131 = _T | _GEN_130;
   wire [7:0] io_out_bits_lo_lo_lo_lo = {data_7,data_6,data_5,data_4,data_3,data_2,data_1,data_0};
@@ -690,6 +696,11 @@ module sb_ldes(
       data_127 <= io_in_bits;
     end
     receiving <= reset | _GEN_131;
+    if (reset) begin
+      prev_count <= 7'h0;
+    end else begin
+      prev_count <= recvCount;
+    end
   end
   always @(posedge io_in_remote_clock) begin
     if (reset) begin

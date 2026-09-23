@@ -137,6 +137,33 @@ reaches `FDI/ACTIVE` (`tb_state==1`, `fdi_req==1`):
    as stale packets in RX queues and head-of-line blocked later
    traffic. Fix (TB): answer each distinct packet once.
 
+8. **`sb_ldes` completes one edge early (2026-09-23).** `receiving`
+   dropped when `recvCount==0x7f` was *observed* (127 edges), so the
+   packet presented before bit127 arrived; bit127 spilled into the
+   next packet's `data_0`, and every packet lost its top bit. Invisible
+   until now: every defined sideband packet has `bit127==0` and all
+   matching/CRC is on low bits. Found by a lser→des loopback TB with
+   single-bit packets (`xcross_tb`). Fix (RTL): wrap-*event*
+   detect (`prev==0x7f && count==0x00`) + `prev_count` reg; packet
+   presents with data_127 correct in the same cycle.
+
 Note for later: RX queues have no flush on state change, so any
 future stale packet would block the same way; consider drain-on-idle
 hardening (see flit-spec retry work).
+
+## MBINIT is timeout-driven (2026-09-23)
+
+`mb_init` templates (`0x20000a54000001b`, `0x20000aa4000001b`) have
+`[4:0]=0x1b` (message) but `[63:48]=0x0000` (not a train domain), so
+the `ROUTE_TRAIN` switch sends them UP to RDI, never to either side's
+training logic. Both sides therefore burn 2×6.4M-cycle `sb_wrap`
+timeouts in train state 2 and advance anyway. Single-die bring-up is
+fast only because the BFM *echoes* these messages back (same match
+shape), completing the waiters in ~1000 cycles. Consequences:
+
+* Dual-die bring-up needs ~13M extra cycles in MBINIT. Budget train
+  timeouts at 30M cycles (`flit_dual_tb`).
+* If MBINIT ever needs a real exchange, either give its messages the
+  `0002` domain (matching the `train_domain` entry the switch already
+  has) or route `code==0x40` inner. Until then: do not "fix" the
+  timeouts away — both sides rely on them identically.
