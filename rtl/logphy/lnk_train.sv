@@ -258,8 +258,17 @@ module lnk_train(
     .io_internalError(rdiBringup_io_internalError)
   );
   assign io_mainbandFSMIO_rxEn = 3'h0 == currentState ? 1'h0 : _T_2;
-  assign io_sidebandFSMIO_rxData_ready = ~msgSource ? patternGenerator_io_sidebandLaneIO_rxData_ready :
-    sbMsgWrapper_io_laneIO_rxData_ready;
+  // Drain stale training packets post-bring-up (dual-die HOL fix): the
+  // TB gearbox queues ~400 training bursts ahead of the first D2D PARAM.
+  // They share the lower RX queue with D2D (route by domain after the
+  // queue), and training ready is 0 in Active, so the stale head blocks
+  // PARAM forever. Accept-and-ignore in Active to let PARAM flow through.
+  // pat_gen/sb_wrap ignore it (msgSource=0 gates sb_wrap valid to 0;
+  // pat_gen only counts AA patterns, messages are safe).
+  wire train_drain = (currentState == 3'h4);
+  assign io_sidebandFSMIO_rxData_ready = train_drain ? 1'h1 :
+    (~msgSource ? patternGenerator_io_sidebandLaneIO_rxData_ready :
+    sbMsgWrapper_io_laneIO_rxData_ready);
   assign io_sidebandFSMIO_patternTxData_valid = patternGenerator_io_sidebandLaneIO_txData_valid;
   assign io_sidebandFSMIO_patternTxData_bits = patternGenerator_io_sidebandLaneIO_txData_bits;
   assign io_sidebandFSMIO_packetTxData_valid = sbMsgWrapper_io_laneIO_txData_valid;

@@ -184,7 +184,10 @@ pulse. No link partner is modeled yet, so no AFE traffic is expected.
 * [x] Phase 3 PHY: `NLANES` param end to end (default 1, target 16), `lane_pll_tb` (4-lane async-FIFO loopback, pllLock=0 negative, rdi overwrite flag)
 * [x] Phase 4 host+config: AHB MMIO mailbox (`docs/cfg_spec.md`, 4-word TX/RX, credit handshake, `HRESP`=`link_error`), FDI config wired through `d2d_adapt`/`d2d_sb`, host tap in `sidebandSwitcher`, `ahb_cfg_tb` (TX e2e, backpressure, RX/mgmt/overrun, HRESP)
 * [x] Phase 5a-d cross-die ACK/NACK: `docs/ack_spec.md` (0x2A/0x2B, seq in [63:56]), codec in `d2d_sb`, `REMOTE_ACK` plumbing, `sb_ldes` wrap-event fix, `sb_gear` TB wire model; `ack_xchg_tb`, `xcross_tb`, `linkinit_xchg_tb`, `d2d_dual_tb` (+300-cycle latency) all pass
-* [ ] Phase 5e dual-die link: `flit_dual_tb` trains both dies (DUAL TRAINED) but D2D PARAM stalls (both sent once, never received; under debug via stage counters)
+* [ ] Phase 5e dual-die link: `flit_dual_tb` reaches DUAL TRAINED + DUAL
+  ACTIVE (PARAM stall fixed via `lnk_init` resend + `lnk_train` drain,
+  see below) but flits partial (A->B 7/14, 1-shot retry OK, link_error
+  A=1; under debug)
 * [ ] Full `make regress` green including `sb_link_tb` bring-up (long)
 * [ ] 256B datapath
 * [ ] First hardened block review (`ahb_fdi` -> style pass)
@@ -194,17 +197,15 @@ pulse. No link partner is modeled yet, so no AFE traffic is expected.
 Ordered, smallest-first. The current blocker is 1; the rest unblock
 once the dual-die link is green.
 
-1. **Fix the dual-die D2D PARAM stall** (`flit_dual_tb`): both sides
-   send PARAM once and wait forever. Stage counters (`Arserc`,
-   `Audesc`, `Alswc` in `flit_dual_tb`) already localize it to
-   TX-side emission vs peer-side decode — finish that localization,
-   then fix. Prime suspect is single-shot fragility: PARAM is sent
-   exactly once with no retry and no timeout (every other sender in
-   the design retries until complete), so any single loss — e.g. a
-   gearbox gate drop or a stale-`snt_flag` from training — stalls
-   both sides permanently. Likely fix: a PARAM resend timer in
-   `lnk_init` (clear `snt_flag` while in PARAM phase without `rcv`,
-   ~2048 cycles), then re-run `flit_dual` to ACTIVE + flits both ways.
+1. **Finish dual-die flits** (`flit_dual_tb`): PARAM stall is fixed —
+    DUAL TRAINED + DUAL ACTIVE now reached via (a) PARAM resend timer
+    in `lnk_init` (clear `snt_flag` in PARAM phase without `rcv`,
+    ~2048 cycles) and (b) training RX drain in `lnk_train` (accept-and-
+    ignore in Active so the TB `sb_gear` training backlog ~400 bursts
+    can't head-of-line block PARAM in the shared lower RX queue).
+    `SNIFF` is now gap-framed (full 128b bursts). Remaining: A->B 7/14
+    (first flit + retry OK, `err_cnt=1`) then `link_error` A=1 — debug
+    second-flit/ACK timing, then re-run to flits both ways.
 2. **Full `make regress` green**, including the long `link` and
    `flit_dual` targets; keep `sb_link_tb` passing (single-die
    behavior must not change).

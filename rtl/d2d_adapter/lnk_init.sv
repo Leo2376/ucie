@@ -24,10 +24,18 @@ module lnk_init(
   reg [31:0] _RAND_5;
   reg [31:0] _RAND_6;
   reg [31:0] _RAND_7;
+  reg [31:0] _RAND_8;
 `endif // RANDOMIZE_REG_INIT
   reg [2:0] linkinit_state_reg;
   reg  param_exch_sbmsg_rcv_flag;
   reg  param_exch_sbmsg_snt_flag;
+  // PARAM resend timer (dual-die stall fix): PARAM was single-shot
+  // (sent exactly once, no retry), so any single loss downstream of
+  // the local handshake (gearbox gate drop, serial framing loss,
+  // stale queue) stalled both sides forever. While in PARAM phase
+  // with sent-but-unacked, count; on timeout clear snt_flag so snd
+  // returns to 0x24 and the packet is re-emitted. ~2048 cycles.
+  reg [11:0] param_retry_cnt;
   reg  active_sbmsg_req_rcv_flag;
   reg  active_sbmsg_rsp_rcv_flag;
   reg  active_sbmsg_ext_rsp_reg;
@@ -87,6 +95,12 @@ module lnk_init(
   wire  _GEN_68 = io_link_state == 4'h0 & _GEN_55;
   wire  _GEN_71 = io_link_state == 4'h0 & _GEN_59;
   wire  _GEN_72 = io_link_state == 4'h0 & _GEN_60;
+  // Resend timeout: in PARAM state (2) with sent but no rcv, expire
+  // after 2048 cycles and clear snt_flag to re-emit 0x24.
+  wire  param_in_phase = (linkinit_state_reg == 3'h2) & (io_link_state == 4'h0);
+  wire  param_wait_ack = param_in_phase & param_exch_sbmsg_snt_flag & ~param_exch_sbmsg_rcv_flag;
+  wire  param_timeout = param_wait_ack & (param_retry_cnt == 12'h7FF);
+  wire  param_snt_next = _GEN_72 & ~param_timeout;
   assign io_linkinit_fdi_pl_inband_pres = io_link_state == 4'h0 & _GEN_61;
   assign io_linkinit_fdi_pl_rxactive_req = io_link_state == 4'h0 & _GEN_56;
   assign io_linkinit_rdi_lp_state_req = {{3'd0}, _GEN_68};
@@ -116,7 +130,16 @@ module lnk_init(
     if (reset) begin
       param_exch_sbmsg_snt_flag <= 1'h0;
     end else begin
-      param_exch_sbmsg_snt_flag <= _GEN_72;
+      param_exch_sbmsg_snt_flag <= param_snt_next;
+    end
+    if (reset) begin
+      param_retry_cnt <= 12'h0;
+    end else if (param_timeout) begin
+      param_retry_cnt <= 12'h0;
+    end else if (param_wait_ack) begin
+      param_retry_cnt <= param_retry_cnt + 12'h1;
+    end else begin
+      param_retry_cnt <= 12'h0;
     end
     if (reset) begin
       active_sbmsg_req_rcv_flag <= 1'h0;
@@ -226,6 +249,8 @@ initial begin
   active_sbmsg_ext_req_reg = _RAND_6[0:0];
   _RAND_7 = {1{`RANDOM}};
   transition_to_active_reg = _RAND_7[0:0];
+  _RAND_8 = {1{`RANDOM}};
+  param_retry_cnt = _RAND_8[11:0];
 `endif // RANDOMIZE_REG_INIT
   `endif // RANDOMIZE
 end // initial

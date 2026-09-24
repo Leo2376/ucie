@@ -216,8 +216,14 @@ module flit_dual_tb;
   reg [127:0] snif_first3 [0:2];
   wire snif_armed = (dut_a.logPhy.trainingModule.currentState === 3'h4);
   always @(negedge HCLK) begin
-    if (HRESETn && snif_armed && snif_npkt < 3 &&
-        dut_a.logPhy.sidebandChannel.lower_node.tx_ser.sending === 1'b1) begin
+    if (!HRESETn || !snif_armed) begin
+      snif_n = 0;
+      // keep npkt (don't reset after armed)
+    end else if (dut_a.logPhy.sidebandChannel.lower_node.tx_ser.sending === 1'b0) begin
+      // Inter-burst gap: drop any partial (mid-burst arming) so each
+      // stored packet is one full 128b burst, correctly framed.
+      snif_n = 0;
+    end else if (snif_npkt < 3) begin
       snif_pkt[snif_n] = A_sbTx;
       snif_n = snif_n + 1;
       if (snif_n == 128) begin
