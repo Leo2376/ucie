@@ -8,10 +8,9 @@ compatible evolution of UCIe for driving an open chiplet ecosystem with
 new usage models" (white paper + spec request page):
 https://www.uciexpress.org/copy-of-white-papers
 
-Top level: `ucie_top` in `rtl/top/ucie_top.sv` (48 modules split per
-block under `rtl/`; pristine flat file kept at `legacy/UCITop.orig.sv`).
-This project restructures it into clean, reviewable RTL
-with a repeatable lint + simulation flow.
+Top level: `ucie_top` in `rtl/top/ucie_top.sv`, with clean,
+reviewable RTL organized per block under `rtl/` and a repeatable
+lint + simulation flow.
 
 ## Architecture
 
@@ -108,9 +107,8 @@ unchanged behind it.
 
 ```
 .
-├── legacy/UCITop.orig.sv   # pristine flat RTL (reference only, not built)
 ├── README.md
-├── rtl/                  # 48 modules, one file per module
+├── rtl/                  # synthesizable RTL, one file per module
 │   ├── top/              # ucie_top
 │   ├── protocol/         # ahb_fdi
 │   ├── d2d_adapter/      # d2d_adapt, d2d_mb/sb, lnk_mgmt/init/rst/dis, par_neg/gen, fdi/rdi_stall
@@ -126,16 +124,15 @@ unchanged behind it.
 └── scripts/              # split/clean/lint helpers
 ```
 
-Migration strategy: `legacy/UCITop.orig.sv` is frozen; all new work
-lands in `rtl/` (already split, lint-clean).
+All new work lands in `rtl/` (lint-clean) with tests in `verif/`.
 
 ## RTL hardening plan
 
 Goal: production-style SystemVerilog, same behavior, no legacy idioms.
 
-1. **Split & normalize**: one module per file, `ucie_` prefix,
-   `localparam` state/opcode names instead of magic `4'hx`/`6'hx`,
-   explicit `always_ff` / `always_comb`, `logic` types.
+1. **Naming**: `ucie_` prefix, `localparam` state/opcode names
+   instead of magic `4'hx`/`6'hx`, explicit `always_ff` /
+   `always_comb`, `logic` types.
 2. **Style**: 2-space indent, `lower_snake_case` ports, header with
    brief + interface table, no tool-annotation comments, `SYNTHESIS`
    guards only where needed.
@@ -179,8 +176,7 @@ pulse. No link partner is modeled yet, so no AFE traffic is expected.
 
 ## Status
 
-* [x] Legacy RTL captured (`legacy/UCITop.orig.sv`)
-* [x] Renamed top + main blocks to short names, split 48 files into `rtl/`, lint-clean
+* [x] Short block names (`ucie_top`, `ahb_fdi`, …), lint-clean
 * [x] Native AHB-Lite 64-bit host IF (`ahb_fdi`, `BASE_ADDR=0x0`) + AHB smoke test passing
 * [x] Phase 0 hygiene: `filelist_rtl.f` single source, `verif/tests/regression.list`, `make regress`, shared `verif/tb/common/`
 * [x] Phase 1 flit reliability: `MAX_RETRY->link_error` + quiesce, `fmt` decode, `exp_seq` duplicate suppression, `o_flit_link_error/o_flit_overflow` on top, `GATE_ACTIVE` param
@@ -192,3 +188,32 @@ pulse. No link partner is modeled yet, so no AFE traffic is expected.
 * [ ] Full `make regress` green including `sb_link_tb` bring-up (long)
 * [ ] 256B datapath
 * [ ] First hardened block review (`ahb_fdi` -> style pass)
+
+## Next steps
+
+Ordered, smallest-first. The current blocker is 1; the rest unblock
+once the dual-die link is green.
+
+1. **Fix the dual-die D2D PARAM stall** (`flit_dual_tb`): both sides
+   send PARAM once and wait forever. Stage counters (`Arserc`,
+   `Audesc`, `Alswc` in `flit_dual_tb`) already localize it to
+   TX-side emission vs peer-side decode — finish that localization,
+   then fix. Prime suspect is single-shot fragility: PARAM is sent
+   exactly once with no retry and no timeout (every other sender in
+   the design retries until complete), so any single loss — e.g. a
+   gearbox gate drop or a stale-`snt_flag` from training — stalls
+   both sides permanently. Likely fix: a PARAM resend timer in
+   `lnk_init` (clear `snt_flag` while in PARAM phase without `rcv`,
+   ~2048 cycles), then re-run `flit_dual` to ACTIVE + flits both ways.
+2. **Full `make regress` green**, including the long `link` and
+   `flit_dual` targets; keep `sb_link_tb` passing (single-die
+   behavior must not change).
+3. **256B datapath** (`WORDS_PER_FLIT=32`): widen pack/unpack/slicer,
+   RDI to 256b beats, `Lanes` to `NLANES=16`; extend `flit_pack_tb`
+   + `flit_stress_tb` to both widths.
+4. **Harden `ahb_fdi` first** (style pass per plan above), then the
+   flit datapath blocks; add SVA in `verif/formal/` (still empty) for
+   CRC/seq-retry/FSM coverage.
+5. **Cross-die ACK/NACK hardening**: sideband ACK transport for
+   production traffic (Phase 5 covers bring-up-time paths); multi-lane
+   (`NLANES=16`) AFE validation in `lane_pll_tb`.
