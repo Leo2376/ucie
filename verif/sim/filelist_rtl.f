@@ -52,3 +52,4 @@
 ../../rtl/sideband/sidebandSwitcher_1.sv
 ../../rtl/sideband/sidebandTwoInOneOutSwitch.sv
 ../../rtl/top/ucie_top.sv
+../../verif/formal/ucie_sva.sv

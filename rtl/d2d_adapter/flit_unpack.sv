@@ -38,15 +38,15 @@ module flit_unpack #(
   initial begin
     if (WORDS_PER_FLIT < 1 || WORDS_PER_FLIT > 63) $error("flit_unpack: WORDS_PER_FLIT out of len range");
   end
-  reg [63:0] pbuf [0:WORDS_PER_FLIT-1];
-  reg [RCNT_W-1:0] rcnt;    // words remaining
-  reg [RCNT_W-1:0] rptr;
-  reg draining;
-  reg ack_v;
-  reg [7:0] ack_s;
-  reg nack_r;
-  reg [31:0] errs;
-  reg [7:0] exp_s;
+  logic [63:0] pbuf [0:WORDS_PER_FLIT-1];
+  logic [RCNT_W-1:0] rcnt;    // words remaining
+  logic [RCNT_W-1:0] rptr;
+  logic draining;
+  logic ack_v;
+  logic [7:0] ack_s;
+  logic nack_r;
+  logic [31:0] errs;
+  logic [7:0] exp_s;
 
   wire [RAW_W-1:0] raw = in_bits[RAW_W-1:0];
   wire [31:0] hdr = raw[RAW_W-1:RAW_W-32];
@@ -72,8 +72,8 @@ module flit_unpack #(
   assign err_cnt = errs;
   assign exp_seq = exp_s;
 
-  integer i;
-  always @(posedge clock) begin
+  int i;
+  always_ff @(posedge clock) begin
     if (reset) begin
       draining <= 1'b0;
       rcnt <= RCNT_W'(0);

@@ -16,8 +16,8 @@ module ucie_crc32 #(
     if (DATA_W % 8 != 0) $error("ucie_crc32: DATA_W must be a multiple of 8");
   end
   function automatic [31:0] crc32(input [DATA_W-1:0] d);
-    reg [31:0] c;
-    integer i, b;
+    logic [31:0] c;
+    int i, b;
     begin
       c = 32'hFFFFFFFF;
       for (i = 0; i < NBYTES; i = i + 1) begin

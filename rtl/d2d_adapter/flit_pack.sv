@@ -48,6 +48,8 @@ module flit_pack #(
   localparam int RAW_W = WORDS_PER_FLIT * 64 + 64;
   localparam int BEATS = (RAW_W + RDI_BEAT_W - 1) / RDI_BEAT_W;
   localparam int FLIT_W = BEATS * RDI_BEAT_W;
+  localparam logic [3:0] FMT_DATA = 4'h0;
+  localparam logic [3:0] FMT_IDLE = 4'h1;
   localparam int PAY_W = WORDS_PER_FLIT * 64;
   localparam int WCNT_W = (WORDS_PER_FLIT <= 7) ? 3 : $clog2(WORDS_PER_FLIT + 1);
   localparam int IDX_W = $clog2(WORDS_PER_FLIT); // wbuf index bits (3 for 7, 5 for 32)
@@ -56,23 +58,23 @@ module flit_pack #(
     if (FLIT_W % RDI_BEAT_W != 0) $error("flit_pack: FLIT_W not a multiple of RDI_BEAT_W");
   end
 
-  reg [63:0] wbuf [0:WORDS_PER_FLIT-1];
-  reg [WCNT_W-1:0] wcnt;
-  reg [7:0] seq_reg;
-  reg [7:0] retry_cnt;
-  reg [15:0] timer;
-  reg err_reg;
+  logic [63:0] wbuf [0:WORDS_PER_FLIT-1];
+  logic [WCNT_W-1:0] wcnt;
+  logic [7:0] seq_reg;
+  logic [7:0] retry_cnt;
+  logic [15:0] timer;
+  logic err_reg;
   // TEMP DEBUG: exact capture/emission counts (same domain as wcnt).
-  reg [31:0] dbg_caps = 0;
-  reg [31:0] dbg_newouts = 0;
-  reg [31:0] dbg_retouts = 0;
+  logic [31:0] dbg_caps = 0;
+  logic [31:0] dbg_newouts = 0;
+  logic [31:0] dbg_retouts = 0;
 
   // Replay buffer: 16 x flit + valid + acked.
-  reg [FLIT_W-1:0] replay_mem [0:REPLAY_DEPTH-1];
-  reg replay_vld [0:REPLAY_DEPTH-1];
-  reg replay_acked [0:REPLAY_DEPTH-1];
-  reg [7:0] oldest_seq; // oldest unacked
-  reg pending_unacked;
+  logic [FLIT_W-1:0] replay_mem [0:REPLAY_DEPTH-1];
+  logic replay_vld [0:REPLAY_DEPTH-1];
+  logic replay_acked [0:REPLAY_DEPTH-1];
+  logic [7:0] oldest_seq; // oldest unacked
+  logic pending_unacked;
 
   wire [31:0] hdr;
   logic [PAY_W-1:0] payload;
@@ -88,14 +90,14 @@ module flit_pack #(
   end
   // New-data header uses current seq; retransmit reuses stored flit as-is.
   // len tracks WORDS_PER_FLIT (7 for 512b streaming flits, 32 for 256B).
-  assign hdr = {seq_reg, 4'h0, WORDS_PER_FLIT[5:0], 14'h0};
+  assign hdr = {seq_reg, FMT_DATA, WORDS_PER_FLIT[5:0], 14'h0};
 
   ucie_crc32 #(.DATA_W(PAY_W + 32)) u_crc (.data({hdr, payload}), .crc(crc));
   assign raw_flit = {hdr, payload, crc};
   assign new_flit = {{(FLIT_W-RAW_W){1'b0}}, raw_flit};
 
   // Idle flit (fmt=1, len=0, zero payload) with its own CRC, padded.
-  wire [31:0] idle_hdr = {seq_reg, 4'h1, 6'd0, 14'h0};
+  wire [31:0] idle_hdr = {seq_reg, FMT_IDLE, 6'd0, 14'h0};
   wire [31:0] idle_crc;
   ucie_crc32 #(.DATA_W(PAY_W + 32)) u_crc_idle (.data({idle_hdr, {PAY_W{1'b0}}}), .crc(idle_crc));
   wire [RAW_W-1:0] idle_raw = {idle_hdr, {PAY_W{1'b0}}, idle_crc};
@@ -127,8 +129,8 @@ module flit_pack #(
   assign link_error = err_reg;
   assign cur_seq = seq_reg;
 
-  integer i;
-  always @(posedge clock) begin
+  int i;
+  always_ff @(posedge clock) begin
     if (reset) begin
       wcnt <= 0;
       seq_reg <= 8'h0;

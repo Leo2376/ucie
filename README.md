@@ -196,15 +196,18 @@ pulse. No link partner is modeled yet, so no AFE traffic is expected.
   reasm/RDI/`Lanes`, 2304b padded flits (2048b payload + hdr/CRC +
   192b reserved) over 9x256b RDI beats, `NLANES=16` target (9
   cycles/flit); `flit_pack_tb` + `flit_stress_tb` cover both widths
-* [ ] First hardened block review (`ahb_fdi` -> style pass)
+* [x] First hardened block review: `ahb_fdi` style pass (header +
+  interface table, `logic`/`always_ff`, `localparam` states/codes/map)
+  and flit datapath (`pack/unpack/slicer/reasm/crc/d2d_mb_flit`:
+  `logic`/`always_ff`/`int`, `localparam` fmts); SVA in `verif/formal/`
+  (`ucie_sva.sv`, bound in sim, `make formal` runs pack/unpack/slicer/
+  reasm + `lnk_init` + `ahb_fdi` asserts under `--assert`) for
+  CRC/seq-retry/FSM coverage; regress 15/15 incl. `formal`
 
 ## Next steps
 
 Ordered, smallest-first.
 
-1. **Harden `ahb_fdi` first** (style pass per plan above), then the
-   flit datapath blocks; add SVA in `verif/formal/` (still empty) for
-   CRC/seq-retry/FSM coverage.
-2. **Cross-die ACK/NACK hardening**: sideband ACK transport for
+1. **Cross-die ACK/NACK hardening**: sideband ACK transport for
    production traffic (Phase 5 covers bring-up-time paths); multi-lane
    (`NLANES=16`) AFE validation in `lane_pll_tb`.

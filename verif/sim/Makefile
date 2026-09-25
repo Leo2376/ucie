@@ -13,7 +13,7 @@ AHBCFGFILELIST := filelist_ahbcfg.f
 ACKXCHGFILELIST := filelist_ackxchg.f
 FLITDUALFILELIST := filelist_flitdual.f
 
-.PHONY: lint sim sniff link flit flit_path flit_stress link_mgmt lane_pll ahb_cfg ack_xchg flit_dual regress clean
+.PHONY: lint sim sniff link flit flit_path flit_stress link_mgmt lane_pll ahb_cfg ack_xchg flit_dual formal regress clean
 
 lint:
 	verilator --lint-only -f $(FILELIST) --top-module $(TOP) --timing
@@ -95,6 +95,18 @@ sbchan_fwd:
 
 regress:
 	./regress.sh
+
+formal:
+	verilator --binary --timing --assert -j 0 -f $(FLITFILELIST) --top-module flit_pack_tb \
+	  -Mdir obj_dir_formal_flit -o simv_formal_flit --build -Wno-TIMESCALEMOD
+	./obj_dir_formal_flit/simv_formal_flit > /dev/null
+	verilator --binary --timing --assert -j 0 -f $(LINKMGMTFILELIST) --top-module link_mgmt_tb \
+	  -Mdir obj_dir_formal_mgmt -o simv_formal_mgmt --build -Wno-TIMESCALEMOD
+	./obj_dir_formal_mgmt/simv_formal_mgmt > /dev/null
+	verilator --binary --timing --assert -j 0 -f $(AHBCFGFILELIST) --top-module ahb_cfg_tb \
+	  -Mdir obj_dir_formal_cfg -o simv_formal_cfg --build -Wno-TIMESCALEMOD
+	./obj_dir_formal_cfg/simv_formal_cfg > /dev/null
+	echo FORMAL_OK
 
 clean:
 	rm -rf obj_dir* *.vcd *.fst

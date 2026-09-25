@@ -12,5 +12,6 @@ ack_xchg ACKXCHG
 xcross XCROSS
 linkinit_xchg LINKINITXCHG
 d2d_dual D2DDUAL
+formal FORMAL_OK
 link LINKBRINGUP
 flit_dual FLITDUAL

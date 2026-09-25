@@ -23,9 +23,9 @@ module flit_slicer #(
   initial begin
     if (FLIT_W % BEAT_W != 0) $error("flit_slicer: FLIT_W not a multiple of BEAT_W");
   end
-  reg [FLIT_W-1:0] flit_buf;
-  reg [CNT_W-1:0] beats_left; // 0 = idle
-  reg [IDX_W-1:0] idx;
+  logic [FLIT_W-1:0] flit_buf;
+  logic [CNT_W-1:0] beats_left; // 0 = idle
+  logic [IDX_W-1:0] idx;
 
   wire idle = (beats_left == CNT_W'(0));
 
@@ -34,7 +34,7 @@ module flit_slicer #(
   assign out_bits = flit_buf[idx*BEAT_W+:BEAT_W];
   assign out_last = !idle && (beats_left == CNT_W'(1));
 
-  always @(posedge clock) begin
+  always_ff @(posedge clock) begin
     if (reset) begin
       beats_left <= CNT_W'(0);
       idx <= IDX_W'(0);

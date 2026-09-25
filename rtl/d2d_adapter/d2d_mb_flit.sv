@@ -52,7 +52,7 @@ module d2d_mb_flit #(
   input  [7:0]  io_ack_rx_seq,
   input         io_nack_rx
 );
-  reg stall_reg;
+  logic stall_reg;
   wire stalled = stall_reg;
   wire active = (io_d2d_state == 4'h1);
   // Link gate: when enabled, block both directions until ACTIVE.
@@ -134,9 +134,9 @@ module d2d_mb_flit #(
   );
 
   // FDI RX: hold last word (legacy fill-reg semantics).
-  reg [63:0] rx_word;
-  reg rx_vld;
-  always @(posedge clock) begin
+  logic [63:0] rx_word;
+  logic rx_vld;
+  always_ff @(posedge clock) begin
     if (reset) begin
       rx_word <= 64'h0;
       rx_vld <= 1'b0;
@@ -162,7 +162,7 @@ module d2d_mb_flit #(
 
   wire _unused = &{up_out_last, up_err_cnt[31:1], pack_out_retry, 1'b0};
 
-  always @(posedge clock) begin
+  always_ff @(posedge clock) begin
     if (reset) stall_reg <= 1'b0;
     else stall_reg <= io_mainband_stallreq | (active & stall_reg);
   end

@@ -26,6 +26,7 @@ run ack_xchg ACKXCHG make -s ack_xchg
 run xcross XCROSS make -s xcross
 run linkinit_xchg LINKINITXCHG make -s linkinit_xchg
 run d2d_dual D2DDUAL make -s d2d_dual
+run formal FORMAL_OK make -s formal
 # link bring-up last (30M+ cycle budget)
 run link LINKBRINGUP make -s link
 # dual-die link brings up two PHYs (slowest, very last)

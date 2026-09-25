@@ -1,93 +1,130 @@
 // ahb_fdi: native AHB-Lite 64-bit host port to FDI bridge + config mailbox.
 //
-// Two spaces selected by HADDR[31] (docs/cfg_spec.md):
-//   0 = streaming flit port (unchanged): HWDATA drives the FDI Tx bits
-//       directly, HRDATA from FDI Rx bits, HREADYOUT = FDI Tx ready on
-//       writes (1 on reads/idle). HADDR/HSIZE/HBURST otherwise ignored.
-//   1 = config space (32b words in HWDATA[31:0]):
-//       offset 0 (data): write -> plConfig TX packet buffer (4 words =
-//         one sideband packet, HREADYOUT low while full); read <- lpConfig
-//         RX buffer (pops one word, 0 when empty).
-//       offset 4 (status): read -> {28'b0, rx_overflow, link_error,
-//         tx_ready, rx_valid}; write clears rx_overflow.
-// Link controls stay discrete pins. HRESP = link_error (level): while the
-// flit link_error latch is set, every AHB transfer errors.
+// Brief: AHB-Lite subordinate with two spaces selected by HADDR[31]
+// (see docs/cfg_spec.md). The streaming flit port has no register file:
+// the AHB data phase IS the FDI transfer. The config space is a 4-word
+// TX/RX packet mailbox into the sideband config fabric. Link controls
+// stay discrete pins; HRESP mirrors link_error (level).
+//
+// Interface:
+//   AHB-Lite  | HCLK/HRESETn, HSEL/HADDR/HWDATA/HWRITE/HSIZE/HBURST/
+//             | HTRANS/HREADY in, HRDATA/HREADYOUT/HRESP out.
+//             | HADDR[31]=0 streaming, =1 config (HADDR[3:2]: 0=data,
+//             | 1=status). HSIZE/HBURST/HADDR[30:0] otherwise ignored.
+//   Host pins | io_lpData_irdy in, io_plStateStatus/plData_bits/plData_valid
+//             | out, io_ready_to_rcv/io_fault/io_soft_reset in.
+//   FDI data  | lpData (valid/irdy/bits) out, plData (valid/bits) in,
+//             | lpData_ready in; lpStateReq/lpLinkError/lpRxActiveStatus/
+//             | lpStallAck out, plStateStatus/plInbandPres/plRxActiveReq/
+//             | plStallReq in.
+//   FDI config| plConfig (valid/bits) out, plConfigCredit in;
+//             | lpConfig (valid/bits) in, lpConfigCredit out.
+//   Status    | io_link_error in (drives HRESP).
+//
+// CDC/reset: single HCLK domain, synchronous active-low reset. No CDC.
 module ahb_fdi (
-  input  wire        HCLK,
-  input  wire        HRESETn,
-  input  wire        HSEL,
-  input  wire [31:0] HADDR,
-  input  wire [63:0] HWDATA,
-  input  wire        HWRITE,
-  input  wire [2:0]  HSIZE,
-  input  wire [2:0]  HBURST,
-  input  wire [1:0]  HTRANS,
-  input  wire        HREADY,
-  output wire [63:0] HRDATA,
-  output wire        HREADYOUT,
-  output wire        HRESP,
-  input  wire        io_lpData_irdy,
-  output wire [3:0]  io_plStateStatus,
-  output wire [63:0] io_plData_bits,
-  output wire        io_plData_valid,
-  input  wire        io_ready_to_rcv,
-  input  wire        io_fault,
-  input  wire        io_soft_reset,
-  input  wire        io_fdi_lpData_ready,
-  output wire        io_fdi_lpData_valid,
-  output wire        io_fdi_lpData_irdy,
-  output wire [63:0] io_fdi_lpData_bits,
-  input  wire        io_fdi_plData_valid,
-  input  wire [63:0] io_fdi_plData_bits,
-  output wire [3:0]  io_fdi_lpStateReq,
-  output wire        io_fdi_lpLinkError,
-  input  wire [3:0]  io_fdi_plStateStatus,
-  input  wire        io_fdi_plInbandPres,
-  input  wire        io_fdi_plRxActiveReq,
-  output wire        io_fdi_lpRxActiveStatus,
-  input  wire        io_fdi_plStallReq,
-  output wire        io_fdi_lpStallAck,
+  input  logic        HCLK,
+  input  logic        HRESETn,
+  input  logic        HSEL,
+  input  logic [31:0] HADDR,
+  input  logic [63:0] HWDATA,
+  input  logic        HWRITE,
+  input  logic [2:0]  HSIZE,
+  input  logic [2:0]  HBURST,
+  input  logic [1:0]  HTRANS,
+  input  logic        HREADY,
+  output logic [63:0] HRDATA,
+  output logic        HREADYOUT,
+  output logic        HRESP,
+  input  logic        io_lpData_irdy,
+  output logic [3:0]  io_plStateStatus,
+  output logic [63:0] io_plData_bits,
+  output logic        io_plData_valid,
+  input  logic        io_ready_to_rcv,
+  input  logic        io_fault,
+  input  logic        io_soft_reset,
+  input  logic        io_fdi_lpData_ready,
+  output logic        io_fdi_lpData_valid,
+  output logic        io_fdi_lpData_irdy,
+  output logic [63:0] io_fdi_lpData_bits,
+  input  logic        io_fdi_plData_valid,
+  input  logic [63:0] io_fdi_plData_bits,
+  output logic [3:0]  io_fdi_lpStateReq,
+  output logic        io_fdi_lpLinkError,
+  input  logic [3:0]  io_fdi_plStateStatus,
+  input  logic        io_fdi_plInbandPres,
+  input  logic        io_fdi_plRxActiveReq,
+  output logic        io_fdi_lpRxActiveStatus,
+  input  logic        io_fdi_plStallReq,
+  output logic        io_fdi_lpStallAck,
   // Config mailbox (FDI config legs, docs/cfg_spec.md).
-  input  wire        io_link_error,
-  output wire        io_fdi_plConfig_valid,
-  output wire [31:0] io_fdi_plConfig_bits,
-  input  wire        io_fdi_plConfigCredit,
-  input  wire        io_fdi_lpConfig_valid,
-  input  wire [31:0] io_fdi_lpConfig_bits,
-  output wire        io_fdi_lpConfigCredit
+  input  logic        io_link_error,
+  output logic        io_fdi_plConfig_valid,
+  output logic [31:0] io_fdi_plConfig_bits,
+  input  logic        io_fdi_plConfigCredit,
+  input  logic        io_fdi_lpConfig_valid,
+  input  logic [31:0] io_fdi_lpConfig_bits,
+  output logic        io_fdi_lpConfigCredit
 );
-  wire _unused = &{HSIZE, HBURST, HADDR[30:4], HADDR[1:0], 1'b0};
+  // Link states and sideband management low-5-bit codes.
+  localparam logic [3:0] STATE_RESET  = 4'h0;
+  localparam logic [3:0] STATE_ACTIVE = 4'h1;
+  localparam logic [3:0] STATE_LINKRESET = 4'h9;
+  localparam logic [4:0] CODE_COMPLETE0 = 5'h10;
+  localparam logic [4:0] CODE_COMPLETE1 = 5'h11;
+  localparam logic [4:0] CODE_COMPLETE2 = 5'h19;
+  // AHB map: space select + config offsets + packet depth.
+  localparam int AHB_SPACE_BIT = 31;
+  localparam logic [1:0] CFG_OFF_DATA = 2'd0;
+  localparam logic [1:0] CFG_OFF_STATUS = 2'd1;
+  localparam int PKT_WORDS = 4;
 
-  // ---- Streaming datapath (HADDR[31]==0), unchanged ----
+  logic _unused;
+  assign _unused = &{HSIZE, HBURST, HADDR[30:4], HADDR[1:0], 1'b0};
+
+  // ---- Streaming datapath (HADDR[31]==0) ----
   // HREADYOUT must not depend on HREADY (muxed ready) to avoid a
   // combinational loop through the interconnect.
-  wire xfer = HSEL & HREADY & HTRANS[1] & ~HADDR[31];
-  wire wr   = xfer & HWRITE;
-  wire wsel = HSEL & HWRITE & HTRANS[1] & ~HADDR[31];
+  logic xfer;
+  logic wr;
+  logic wsel;
+  assign xfer = HSEL & HREADY & HTRANS[1] & ~HADDR[AHB_SPACE_BIT];
+  assign wr   = xfer & HWRITE;
+  assign wsel = HSEL & HWRITE & HTRANS[1] & ~HADDR[AHB_SPACE_BIT];
 
   assign io_fdi_lpData_valid = wr;
   assign io_fdi_lpData_bits  = HWDATA;
   assign io_fdi_lpData_irdy  = io_lpData_irdy;
 
   // ---- Config mailbox (HADDR[31]==1) ----
-  wire cfg_xfer  = HSEL & HREADY & HTRANS[1] & HADDR[31];
-  wire cfg_data  = (HADDR[3:2] == 2'd0);
-  wire cfg_sts   = (HADDR[3:2] == 2'd1);
-  wire cfg_wr    = cfg_xfer & HWRITE;
-  wire cfg_rd    = cfg_xfer & ~HWRITE;
-  wire wr_cfg_data = cfg_wr & cfg_data;
-  wire rd_cfg_data = cfg_rd & cfg_data;
-  wire rd_cfg_sts  = cfg_rd & cfg_sts;
-  wire wr_cfg_sts  = cfg_wr & cfg_sts;
+  logic cfg_xfer;
+  logic cfg_data;
+  logic cfg_sts;
+  logic cfg_wr;
+  logic cfg_rd;
+  logic wr_cfg_data;
+  logic rd_cfg_data;
+  logic rd_cfg_sts;
+  logic wr_cfg_sts;
+  assign cfg_xfer    = HSEL & HREADY & HTRANS[1] & HADDR[AHB_SPACE_BIT];
+  assign cfg_data    = (HADDR[3:2] == CFG_OFF_DATA);
+  assign cfg_sts     = (HADDR[3:2] == CFG_OFF_STATUS);
+  assign cfg_wr      = cfg_xfer & HWRITE;
+  assign cfg_rd      = cfg_xfer & ~HWRITE;
+  assign wr_cfg_data = cfg_wr & cfg_data;
+  assign rd_cfg_data = cfg_rd & cfg_data;
+  assign rd_cfg_sts  = cfg_rd & cfg_sts;
+  assign wr_cfg_sts  = cfg_wr & cfg_sts;
 
   // TX: 4-deep (one sideband packet). Accepts AHB writes while room;
   // presents 4 words back-to-back, then waits for the fabric credit.
-  reg [31:0] tx_buf [0:3];
-  reg [2:0]  tx_n;
-  reg        tx_sending;
-  reg [1:0]  tx_idx;
-  reg        tx_wait;
-  wire tx_ready = (tx_n < 3'd4) && !tx_sending && !tx_wait;
+  logic [31:0] tx_buf [0:PKT_WORDS-1];
+  logic [2:0]  tx_n;
+  logic        tx_sending;
+  logic [1:0]  tx_idx;
+  logic        tx_wait;
+  logic        tx_ready;
+  assign tx_ready = (tx_n < 3'd4) && !tx_sending && !tx_wait;
 
   assign io_fdi_plConfig_valid = tx_sending;
   assign io_fdi_plConfig_bits  = tx_buf[tx_idx];
@@ -95,23 +132,26 @@ module ahb_fdi (
   // RX: 4-deep. Samples every valid cycle (ser has no backpressure);
   // overrun while 4 unread sets sticky rx_ovf. Credit returned once per
   // completed non-management packet (credit-wrap rule, cfg_spec.md).
-  reg [31:0] rx_buf [0:3];
-  reg [2:0]  rx_n;
-  reg [1:0]  rx_ri;
-  reg        rx_full;
-  reg        rx_ovf;
-  reg        rx_mgmt;
-  wire rx_accept = io_fdi_lpConfig_valid && !rx_full;
-  wire rx_pkt_done = io_fdi_lpConfig_valid && !rx_full && (rx_n == 3'd3);
+  logic [31:0] rx_buf [0:PKT_WORDS-1];
+  logic [2:0]  rx_n;
+  logic [1:0]  rx_ri;
+  logic        rx_full;
+  logic        rx_ovf;
+  logic        rx_mgmt;
+  logic        rx_accept;
+  logic        rx_pkt_done;
+  assign rx_accept   = io_fdi_lpConfig_valid && !rx_full;
+  assign rx_pkt_done = io_fdi_lpConfig_valid && !rx_full && (rx_n == 3'd3);
 
   assign io_fdi_lpConfigCredit = rx_pkt_done && !rx_mgmt;
 
-  wire [63:0] cfg_rdata = cfg_sts
+  logic [63:0] cfg_rdata;
+  assign cfg_rdata = cfg_sts
       ? {60'b0, rx_ovf, io_link_error, tx_ready, rx_full}
       : ({32'b0, rx_buf[rx_ri]} & {64{rx_full}});
 
-  assign HRDATA    = HADDR[31] ? cfg_rdata : io_fdi_plData_bits;
-  assign HREADYOUT = (HSEL & HWRITE & HTRANS[1] & HADDR[31] & cfg_data)
+  assign HRDATA    = HADDR[AHB_SPACE_BIT] ? cfg_rdata : io_fdi_plData_bits;
+  assign HREADYOUT = (HSEL & HWRITE & HTRANS[1] & HADDR[AHB_SPACE_BIT] & cfg_data)
                      ? tx_ready
                      : (wsel ? io_fdi_lpData_ready : 1'b1);
   assign HRESP = io_link_error;
@@ -122,20 +162,21 @@ module ahb_fdi (
   assign io_plData_valid  = io_fdi_plData_valid;
 
   // Link-state sequencer, fed by discrete pins.
-  reg  lp_rx_active_sts_reg;
-  reg [3:0] lp_state_req_reg;
-  reg  lp_stall_reg;
-  wire lp_rx_active_pl_state = (io_fdi_plStateStatus == 4'h1);
-  wire req_active = ((io_fdi_plStateStatus == 4'h0) &
-                     (lp_state_req_reg == 4'h0) &
-                     io_fdi_plInbandPres) |
-                    (io_fdi_plStateStatus == 4'h9);
+  logic       lp_rx_active_sts_reg;
+  logic [3:0] lp_state_req_reg;
+  logic       lp_stall_reg;
+  logic       lp_rx_active_pl_state;
+  logic       req_active;
+  assign lp_rx_active_pl_state = (io_fdi_plStateStatus == STATE_ACTIVE);
+  assign req_active = ((io_fdi_plStateStatus == STATE_RESET) &
+                       (lp_state_req_reg == STATE_RESET) &
+                       io_fdi_plInbandPres) |
+                      (io_fdi_plStateStatus == STATE_LINKRESET);
 
-  integer j;
-  always @(posedge HCLK) begin
+  always_ff @(posedge HCLK) begin
     if (!HRESETn) begin
       lp_rx_active_sts_reg <= 1'b0;
-      lp_state_req_reg     <= 4'h0;
+      lp_state_req_reg     <= STATE_RESET;
       lp_stall_reg         <= 1'b0;
       tx_n <= 3'd0;
       tx_sending <= 1'b0;
@@ -146,7 +187,7 @@ module ahb_fdi (
       rx_full <= 1'b0;
       rx_ovf <= 1'b0;
       rx_mgmt <= 1'b0;
-      for (j = 0; j < 4; j = j + 1) begin
+      for (int j = 0; j < PKT_WORDS; j = j + 1) begin
         tx_buf[j] <= 32'h0;
         rx_buf[j] <= 32'h0;
       end
@@ -154,11 +195,11 @@ module ahb_fdi (
       lp_rx_active_sts_reg <= io_fdi_plRxActiveReq & io_ready_to_rcv &
                               lp_rx_active_pl_state | lp_rx_active_sts_reg;
       if (req_active)
-        lp_state_req_reg <= 4'h1;
+        lp_state_req_reg <= STATE_ACTIVE;
       else if (~req_active & io_soft_reset)
-        lp_state_req_reg <= 4'h9;
+        lp_state_req_reg <= STATE_LINKRESET;
       else
-        lp_state_req_reg <= 4'h0;
+        lp_state_req_reg <= STATE_RESET;
       lp_stall_reg <= io_fdi_plStallReq;
       // TX: accept AHB word (exactly-once: ignored while full).
       if (wr_cfg_data && tx_ready) begin
@@ -184,9 +225,9 @@ module ahb_fdi (
       if (rx_accept) begin
         rx_buf[rx_n[1:0]] <= io_fdi_lpConfig_bits;
         if (rx_n == 3'd0)
-          rx_mgmt <= (io_fdi_lpConfig_bits[4:0] == 5'h10) ||
-                     (io_fdi_lpConfig_bits[4:0] == 5'h11) ||
-                     (io_fdi_lpConfig_bits[4:0] == 5'h19);
+          rx_mgmt <= (io_fdi_lpConfig_bits[4:0] == CODE_COMPLETE0) ||
+                     (io_fdi_lpConfig_bits[4:0] == CODE_COMPLETE1) ||
+                     (io_fdi_lpConfig_bits[4:0] == CODE_COMPLETE2);
         if (rx_n == 3'd3)
           rx_full <= 1'b1;
         rx_n <= rx_n + 3'd1;

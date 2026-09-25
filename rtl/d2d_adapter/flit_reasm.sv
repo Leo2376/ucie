@@ -25,18 +25,18 @@ module flit_reasm #(
   initial begin
     if (FLIT_W % BEAT_W != 0) $error("flit_reasm: FLIT_W not a multiple of BEAT_W");
   end
-  reg [FLIT_W-1:0] acc;
-  reg [CNT_W-1:0] beats; // beats collected for current flit (0..BEATS-1)
-  reg [FLIT_W-1:0] pending;
-  reg pending_vld;
-  reg overflow_reg;
+  logic [FLIT_W-1:0] acc;
+  logic [CNT_W-1:0] beats; // beats collected for current flit (0..BEATS-1)
+  logic [FLIT_W-1:0] pending;
+  logic pending_vld;
+  logic overflow_reg;
 
   assign in_ready = 1'b1; // no RDI beat backpressure (see above)
   assign out_valid = pending_vld;
   assign out_bits = pending;
   assign overflow = overflow_reg;
 
-  always @(posedge clock) begin
+  always_ff @(posedge clock) begin
     if (reset) begin
       acc <= {FLIT_W{1'b0}};
       beats <= CNT_W'(0);
