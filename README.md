@@ -184,37 +184,27 @@ pulse. No link partner is modeled yet, so no AFE traffic is expected.
 * [x] Phase 3 PHY: `NLANES` param end to end (default 1, target 16), `lane_pll_tb` (4-lane async-FIFO loopback, pllLock=0 negative, rdi overwrite flag)
 * [x] Phase 4 host+config: AHB MMIO mailbox (`docs/cfg_spec.md`, 4-word TX/RX, credit handshake, `HRESP`=`link_error`), FDI config wired through `d2d_adapt`/`d2d_sb`, host tap in `sidebandSwitcher`, `ahb_cfg_tb` (TX e2e, backpressure, RX/mgmt/overrun, HRESP)
 * [x] Phase 5a-d cross-die ACK/NACK: `docs/ack_spec.md` (0x2A/0x2B, seq in [63:56]), codec in `d2d_sb`, `REMOTE_ACK` plumbing, `sb_ldes` wrap-event fix, `sb_gear` TB wire model; `ack_xchg_tb`, `xcross_tb`, `linkinit_xchg_tb`, `d2d_dual_tb` (+300-cycle latency) all pass
-* [ ] Phase 5e dual-die link: `flit_dual_tb` reaches DUAL TRAINED + DUAL
-  ACTIVE (PARAM stall fixed via `lnk_init` resend + `lnk_train` drain,
-  see below) but flits partial (A->B 7/14, 1-shot retry OK, link_error
-  A=1; under debug)
-* [ ] Full `make regress` green including `sb_link_tb` bring-up (long)
-* [ ] 256B datapath
+* [x] Phase 5e dual-die link: `flit_dual_tb` green (DUAL TRAINED +
+  DUAL ACTIVE + A->B 2 flits incl. corrupted retry + B->A 1 flit, no
+  `link_error`/`overflow`). Fixes: `lnk_init` PARAM resend (~2048c),
+  `lnk_train` RX drain in Active (TB `sb_gear` backlog HOL), PHY RDI
+  routing (`ROUTE_TRAIN` on the RDI-side switch; seq0 ACKs have
+  `bits[58:56]==0` and took the dead legacy leg)
+* [x] Full `make regress` green (14/14 incl. `sb_link_tb` bring-up and
+  `flit_dual`)
+* [x] 256B datapath (`WORDS_PER_FLIT=32`): widened pack/unpack/slicer/
+  reasm/RDI/`Lanes`, 2304b padded flits (2048b payload + hdr/CRC +
+  192b reserved) over 9x256b RDI beats, `NLANES=16` target (9
+  cycles/flit); `flit_pack_tb` + `flit_stress_tb` cover both widths
 * [ ] First hardened block review (`ahb_fdi` -> style pass)
 
 ## Next steps
 
-Ordered, smallest-first. The current blocker is 1; the rest unblock
-once the dual-die link is green.
+Ordered, smallest-first.
 
-1. **Finish dual-die flits** (`flit_dual_tb`): PARAM stall is fixed —
-    DUAL TRAINED + DUAL ACTIVE now reached via (a) PARAM resend timer
-    in `lnk_init` (clear `snt_flag` in PARAM phase without `rcv`,
-    ~2048 cycles) and (b) training RX drain in `lnk_train` (accept-and-
-    ignore in Active so the TB `sb_gear` training backlog ~400 bursts
-    can't head-of-line block PARAM in the shared lower RX queue).
-    `SNIFF` is now gap-framed (full 128b bursts). Remaining: A->B 7/14
-    (first flit + retry OK, `err_cnt=1`) then `link_error` A=1 — debug
-    second-flit/ACK timing, then re-run to flits both ways.
-2. **Full `make regress` green**, including the long `link` and
-   `flit_dual` targets; keep `sb_link_tb` passing (single-die
-   behavior must not change).
-3. **256B datapath** (`WORDS_PER_FLIT=32`): widen pack/unpack/slicer,
-   RDI to 256b beats, `Lanes` to `NLANES=16`; extend `flit_pack_tb`
-   + `flit_stress_tb` to both widths.
-4. **Harden `ahb_fdi` first** (style pass per plan above), then the
+1. **Harden `ahb_fdi` first** (style pass per plan above), then the
    flit datapath blocks; add SVA in `verif/formal/` (still empty) for
    CRC/seq-retry/FSM coverage.
-5. **Cross-die ACK/NACK hardening**: sideband ACK transport for
+2. **Cross-die ACK/NACK hardening**: sideband ACK transport for
    production traffic (Phase 5 covers bring-up-time paths); multi-lane
    (`NLANES=16`) AFE validation in `lane_pll_tb`.

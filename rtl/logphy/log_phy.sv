@@ -1,6 +1,7 @@
 module log_phy #(
   parameter RDI_W = 64,
-  parameter NLANES = 1
+  parameter NLANES = 1,
+  parameter int WORDS_PER_FLIT = 7
 ) (
   input         clock,
   input         reset,
@@ -135,7 +136,8 @@ module log_phy #(
     .io_rdi_rdiBringupIO_lpLinkError(trainingModule_io_rdi_rdiBringupIO_lpLinkError),
     .io_currentState(trainingModule_io_currentState)
   );
-  rdi_map #(.RDI_W(RDI_W), .NLANES(NLANES)) rdiDataMapper (
+  rdi_map #(.RDI_W(RDI_W), .NLANES(NLANES),
+            .FLIT_W((((WORDS_PER_FLIT * 64 + 64) + RDI_W - 1) / RDI_W) * RDI_W)) rdiDataMapper (
     .clock(rdiDataMapper_clock),
     .reset(rdiDataMapper_reset),
     .io_rdi_lpData_ready(rdiDataMapper_io_rdi_lpData_ready),

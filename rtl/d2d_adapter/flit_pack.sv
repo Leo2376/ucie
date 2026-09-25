@@ -1,12 +1,16 @@
 // flit_pack: 64b streaming words -> 512b UCIe streaming flit + retry.
 //
-// Format (docs/flit_spec.md):
-//   [511:480] hdr = {seq[7:0], fmt[3:0], len[5:0], rsv[14:0]}
-//   [479:32]  payload = 7 x 64b words, w0 first (LSB)
+// Flit format (docs/flit_spec.md):
+//   [RAW-1:RAW-32] hdr = {seq[7:0], fmt[3:0], len[5:0], rsv[14:0]}
+//   payload = WORDS_PER_FLIT x 64b words, w0 first (LSB)
 //   [31:0]    crc32(hdr ++ payload), IEEE-802.3
+// On the wire the raw flit (RAW = W*64+64 bits) is zero-padded to
+// FLIT_W (multiple of the RDI beat): 512b/4x128b for W=7, 2304b/9x256b
+// for W=32 (192b reserved zeros, outside the CRC).
 //
 // Handshake: in_valid/in_ready (64b words), out_valid/out_ready (flits).
-// After 7 words the flit emits in one cycle (CRC is combinational).
+// After WORDS_PER_FLIT words the flit emits in one cycle (CRC is
+// combinational).
 // Every data flit is pushed into a 16-deep replay buffer indexed by
 // seq[3:0]. `ack_seq_valid/ack_seq` frees entries; `nack` (or timeout)
 // retransmits the oldest unacked flit, up to MAX_RETRY=3, then
@@ -15,6 +19,7 @@
 // payload=0, with fresh seq (keeps link alive, no retry).
 module flit_pack #(
   parameter int WORDS_PER_FLIT = 7,
+  parameter int RDI_BEAT_W      = 128,
   parameter int REPLAY_DEPTH    = 16,
   parameter int MAX_RETRY       = 3,
   parameter int TIMEOUT_CYC     = 1024
@@ -26,10 +31,10 @@ module flit_pack #(
   input  wire        in_valid,
   input  wire [63:0] in_bits,
   input  wire        idle_req,
-  // 512b flit out (to RDI slicer)
+  // padded flit out (to RDI slicer)
   input  wire        out_ready,
   output wire        out_valid,
-  output wire [511:0] out_bits,
+  output wire [FLIT_W-1:0] out_bits,
   output wire        out_retry,
   // RX feedback (from flit_unpack)
   input  wire        ack_valid,
@@ -38,15 +43,21 @@ module flit_pack #(
   output wire        link_error,
   output wire [7:0]  cur_seq
 );
-  localparam int CNT_W = 3; // 0..7
-  // 256B path (WORDS_PER_FLIT=32) needs a 2048b datapath; this 512b block
-  // stays 7-word. Elaboration check documents the stepping stone.
+  // Raw flit (hdr + payload + crc) padded with reserved zeros to a
+  // whole number of RDI beats.
+  localparam int RAW_W = WORDS_PER_FLIT * 64 + 64;
+  localparam int BEATS = (RAW_W + RDI_BEAT_W - 1) / RDI_BEAT_W;
+  localparam int FLIT_W = BEATS * RDI_BEAT_W;
+  localparam int PAY_W = WORDS_PER_FLIT * 64;
+  localparam int WCNT_W = (WORDS_PER_FLIT <= 7) ? 3 : $clog2(WORDS_PER_FLIT + 1);
+  localparam int IDX_W = $clog2(WORDS_PER_FLIT); // wbuf index bits (3 for 7, 5 for 32)
   initial begin
-    if (WORDS_PER_FLIT != 7) $error("flit_pack: only WORDS_PER_FLIT=7 (512b) supported; 256B needs wider pack/unpack/slicer");
+    if (WORDS_PER_FLIT < 1 || WORDS_PER_FLIT > 63) $error("flit_pack: WORDS_PER_FLIT out of len range");
+    if (FLIT_W % RDI_BEAT_W != 0) $error("flit_pack: FLIT_W not a multiple of RDI_BEAT_W");
   end
 
   reg [63:0] wbuf [0:WORDS_PER_FLIT-1];
-  reg [CNT_W-1:0] wcnt;
+  reg [WCNT_W-1:0] wcnt;
   reg [7:0] seq_reg;
   reg [7:0] retry_cnt;
   reg [15:0] timer;
@@ -56,39 +67,47 @@ module flit_pack #(
   reg [31:0] dbg_newouts = 0;
   reg [31:0] dbg_retouts = 0;
 
-  // Replay buffer: 16 x 512b + valid + acked.
-  reg [511:0] replay_mem [0:REPLAY_DEPTH-1];
+  // Replay buffer: 16 x flit + valid + acked.
+  reg [FLIT_W-1:0] replay_mem [0:REPLAY_DEPTH-1];
   reg replay_vld [0:REPLAY_DEPTH-1];
   reg replay_acked [0:REPLAY_DEPTH-1];
   reg [7:0] oldest_seq; // oldest unacked
   reg pending_unacked;
 
   wire [31:0] hdr;
-  wire [447:0] payload;
+  logic [PAY_W-1:0] payload;
   wire [31:0] crc;
-  wire [511:0] new_flit;
+  wire [RAW_W-1:0] raw_flit;
+  wire [FLIT_W-1:0] new_flit;
 
-  assign payload = {wbuf[6], wbuf[5], wbuf[4], wbuf[3], wbuf[2], wbuf[1], wbuf[0]};
+  // Payload assembly: w0 at LSB. Generated loop keeps 7- and 32-word
+  // modes identical (w0 first).
+  always_comb begin
+    for (int p = 0; p < WORDS_PER_FLIT; p = p + 1)
+      payload[p*64+:64] = wbuf[p];
+  end
   // New-data header uses current seq; retransmit reuses stored flit as-is.
-  // len tracks WORDS_PER_FLIT (7 for 512b streaming flits).
+  // len tracks WORDS_PER_FLIT (7 for 512b streaming flits, 32 for 256B).
   assign hdr = {seq_reg, 4'h0, WORDS_PER_FLIT[5:0], 14'h0};
 
-  ucie_crc32 u_crc (.data({hdr, payload}), .crc(crc));
-  assign new_flit = {hdr, payload, crc};
+  ucie_crc32 #(.DATA_W(PAY_W + 32)) u_crc (.data({hdr, payload}), .crc(crc));
+  assign raw_flit = {hdr, payload, crc};
+  assign new_flit = {{(FLIT_W-RAW_W){1'b0}}, raw_flit};
 
-  // Idle flit (fmt=1, len=0, zero payload) with its own CRC.
+  // Idle flit (fmt=1, len=0, zero payload) with its own CRC, padded.
   wire [31:0] idle_hdr = {seq_reg, 4'h1, 6'd0, 14'h0};
   wire [31:0] idle_crc;
-  ucie_crc32 u_crc_idle (.data({idle_hdr, 448'h0}), .crc(idle_crc));
-  wire [511:0] idle_flit = {idle_hdr, 448'h0, idle_crc};
+  ucie_crc32 #(.DATA_W(PAY_W + 32)) u_crc_idle (.data({idle_hdr, {PAY_W{1'b0}}}), .crc(idle_crc));
+  wire [RAW_W-1:0] idle_raw = {idle_hdr, {PAY_W{1'b0}}, idle_crc};
+  wire [FLIT_W-1:0] idle_flit = {{(FLIT_W-RAW_W){1'b0}}, idle_raw};
 
-  wire have_word = (wcnt == CNT_W'(WORDS_PER_FLIT));
+  wire have_word = (wcnt == WCNT_W'(WORDS_PER_FLIT));
   wire want_idle = idle_req && !in_valid && !have_word && !pending_unacked
                    && !retransmit_due;
   wire retransmit_due = nack || (pending_unacked && timer == 0);
 
   // Retransmit source: oldest unacked entry.
-  wire [511:0] retry_flit = replay_mem[oldest_seq[3:0]];
+  wire [FLIT_W-1:0] retry_flit = replay_mem[oldest_seq[3:0]];
   wire retry_avail = pending_unacked && replay_vld[oldest_seq[3:0]];
 
   // Stop-and-wait: a new flit is emitted only with nothing unacked
@@ -104,7 +123,7 @@ module flit_pack #(
   assign out_bits = (retransmit_due && retry_avail) ? retry_flit
       : new_ok ? new_flit : idle_flit;
   assign out_retry = !err_reg && retransmit_due && retry_avail && out_valid;
-  assign in_ready = (wcnt != CNT_W'(WORDS_PER_FLIT)) && !retransmit_due && !err_reg;
+  assign in_ready = (wcnt != WCNT_W'(WORDS_PER_FLIT)) && !retransmit_due && !err_reg;
   assign link_error = err_reg;
   assign cur_seq = seq_reg;
 
@@ -125,7 +144,7 @@ module flit_pack #(
     end else begin
       // Collect words.
       if (in_valid && in_ready) begin
-        wbuf[wcnt] <= in_bits;
+        wbuf[wcnt[IDX_W-1:0]] <= in_bits;
         wcnt <= wcnt + 1'b1;
         dbg_caps <= dbg_caps + 1;
       end

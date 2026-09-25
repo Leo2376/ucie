@@ -2,7 +2,8 @@ module d2d_adapt #(
   parameter USE_FLIT = 0,
   parameter RDI_W = 64,
   parameter REMOTE_ACK = 0,
-  parameter GATE_ACTIVE = 0
+  parameter GATE_ACTIVE = 0,
+  parameter int WORDS_PER_FLIT = 7
 ) (
   input         clock,
   input         reset,
@@ -354,7 +355,8 @@ module d2d_adapt #(
   wire sb_nack_rx;
   generate
     if (USE_FLIT != 0) begin : gen_flit
-      d2d_mb_flit #(.GATE_ACTIVE(GATE_ACTIVE), .REMOTE_ACK(REMOTE_ACK)) u_mb_flit (
+      d2d_mb_flit #(.GATE_ACTIVE(GATE_ACTIVE), .REMOTE_ACK(REMOTE_ACK),
+                    .WORDS_PER_FLIT(WORDS_PER_FLIT), .RDI_W(RDI_W)) u_mb_flit (
         .clock(clock),
         .reset(reset),
         .io_fdi_lp_irdy(io_fdi_lpData_irdy),

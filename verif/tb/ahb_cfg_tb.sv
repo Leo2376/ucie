@@ -141,7 +141,9 @@ module ahb_cfg_tb;
     .io_fdi_pl_cfg_crd(),
     .io_fdi_lp_cfg(s_fdi_tx), .io_fdi_lp_cfg_vld(s_fdi_txv),
     .io_fdi_lp_cfg_crd(s_fdi_crd),
-    .io_sideband_rcv(s_rcv), .io_sideband_snt(6'h0), .io_sideband_rdy()
+    .io_sideband_rcv(s_rcv), .io_sideband_snt(6'h0), .io_sideband_rdy(),
+    .io_ack_tx_valid(1'b0), .io_ack_tx_seq(8'h0), .io_nack_tx(1'b0),
+    .io_ack_rx_valid(), .io_ack_rx_seq(), .io_nack_rx()
   );
 
   // ---- AHB drivers with wait-state support (top) ----

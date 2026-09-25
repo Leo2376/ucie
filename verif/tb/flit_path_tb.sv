@@ -171,9 +171,9 @@ module flit_path_tb;
              dut.d2dadapter.gen_flit.u_mb_flit.u_pack.oldest_seq,
              dut.d2dadapter.gen_flit.u_mb_flit.u_pack.pending_unacked,
              dut.d2dadapter.gen_flit.u_mb_flit.u_slice.beats_left,
-             dut.logPhy.rdiDataMapper.gen_flit128.tx_have,
-             dut.logPhy.rdiDataMapper.gen_flit128.tx_out,
-             dut.logPhy.rdiDataMapper.gen_flit128.rx_left,
+              dut.logPhy.rdiDataMapper.gen_flit.tx_have,
+              dut.logPhy.rdiDataMapper.gen_flit.tx_out,
+              dut.logPhy.rdiDataMapper.gen_flit.rx_left,
              dut.d2dadapter.gen_flit.u_mb_flit.u_reasm.pending_vld,
              dut.d2dadapter.gen_flit.u_mb_flit.u_unpack.draining,
              dut.d2dadapter.gen_flit.u_mb_flit.u_unpack.err_cnt);

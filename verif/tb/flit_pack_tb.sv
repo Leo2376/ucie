@@ -56,6 +56,81 @@ module flit_pack_tb;
     .err_cnt(u_err_cnt), .exp_seq()
   );
 
+  // ---- 256B datapath (WORDS_PER_FLIT=32, 256b RDI beats) ----
+  // Same checks at the wide width: loopback, corrupt->nack, retry.
+  localparam int W32 = 32;
+  localparam int RAW32 = W32 * 64 + 64;
+  localparam int FLIT32 = ((RAW32 + 256 - 1) / 256) * 256;
+  reg        p32_in_valid = 0;
+  reg [63:0] p32_in_bits = 0;
+  wire       p32_in_ready;
+  reg        p32_out_ready = 0;
+  wire       p32_out_valid;
+  wire [FLIT32-1:0] p32_out_bits;
+  wire       p32_out_retry;
+  reg        ack32_valid = 0;
+  reg [7:0]  ack32_seq = 0;
+  reg        nack32_in = 0;
+  wire       link32_error;
+
+  flit_pack #(.WORDS_PER_FLIT(W32), .RDI_BEAT_W(256)) dut_pack32 (
+    .clock(clock), .reset(reset),
+    .in_ready(p32_in_ready), .in_valid(p32_in_valid), .in_bits(p32_in_bits),
+    .idle_req(1'b0),
+    .out_ready(p32_out_ready), .out_valid(p32_out_valid), .out_bits(p32_out_bits),
+    .out_retry(p32_out_retry),
+    .ack_valid(ack32_valid), .ack_seq(ack32_seq), .nack(nack32_in),
+    .link_error(link32_error), .cur_seq()
+  );
+
+  reg        u32_out_ready = 1;
+  wire       u32_out_valid;
+  wire [63:0] u32_out_bits;
+  wire       u32_out_last;
+  wire       u32_ack_valid;
+  wire [7:0] u32_ack_seq;
+  wire       u32_nack;
+  wire [31:0] u32_err_cnt;
+  reg [FLIT32-1:0] u32_in_bits = 0;
+  reg        u32_in_valid = 0;
+  wire       u32_in_ready;
+  flit_unpack #(.WORDS_PER_FLIT(W32), .RDI_BEAT_W(256)) dut_unpack32 (
+    .clock(clock), .reset(reset),
+    .in_ready(u32_in_ready), .in_valid(u32_in_valid), .in_bits(u32_in_bits),
+    .out_ready(u32_out_ready), .out_valid(u32_out_valid), .out_bits(u32_out_bits),
+    .out_last(u32_out_last),
+    .ack_valid(u32_ack_valid), .ack_seq(u32_ack_seq), .nack(u32_nack),
+    .err_cnt(u32_err_cnt), .exp_seq()
+  );
+
+  // Slicer/reasm round-trip at 256B width (2304b/9x256b).
+  reg        s32_in_valid = 0;
+  reg [FLIT32-1:0] s32_in_bits = 0;
+  wire       s32_in_ready;
+  wire       s32_out_valid;
+  wire [255:0] s32_out_bits;
+  wire       s32_out_last;
+  reg        s32_out_ready = 0;
+  flit_slicer #(.FLIT_W(FLIT32), .BEAT_W(256)) u_slice32 (
+    .clock(clock), .reset(reset),
+    .in_ready(s32_in_ready), .in_valid(s32_in_valid), .in_bits(s32_in_bits),
+    .out_ready(s32_out_ready), .out_valid(s32_out_valid), .out_bits(s32_out_bits),
+    .out_last(s32_out_last)
+  );
+  reg        r32_in_valid = 0;
+  reg [255:0] r32_in_bits = 0;
+  wire       r32_in_ready;
+  wire       r32_out_valid;
+  wire [FLIT32-1:0] r32_out_bits;
+  wire       r32_overflow;
+  reg        r32_out_ready = 0;
+  flit_reasm #(.FLIT_W(FLIT32), .BEAT_W(256)) u_reasm32 (
+    .clock(clock), .reset(reset),
+    .in_ready(r32_in_ready), .in_valid(r32_in_valid), .in_bits(r32_in_bits),
+    .out_ready(r32_out_ready), .out_valid(r32_out_valid), .out_bits(r32_out_bits),
+    .overflow(r32_overflow)
+  );
+
   integer fails = 0;
   reg [63:0] wdata [0:6];
   reg [63:0] rdata [0:6];
@@ -258,6 +333,133 @@ module flit_pack_tb;
       if (u_out_valid) begin
         $display("FAIL: duplicate re-streamed words"); fails++;
       end else $display("PASS: duplicate emits no words");
+    end
+
+    // 6. 256B width: pack 32 words -> unpack -> match, seq/len, retry.
+    begin
+      reg [63:0] w32 [0:31];
+      reg [63:0] r32 [0:31];
+      reg [FLIT32-1:0] f32, f32_retry;
+      integer j;
+      for (j = 0; j < 32; j = j + 1)
+        w32[j] = 64'hA000_0000_0000_0000 + 64'(j * 3 + 1);
+      p32_out_ready = 1'b0;
+      for (j = 0; j < 32; j = j + 1) begin
+        @(negedge clock);
+        p32_in_bits = w32[j];
+        p32_in_valid = 1'b1;
+        @(posedge clock);
+        #1;
+        @(negedge clock);
+        p32_in_valid = 1'b0;
+      end
+      wait (p32_out_valid);
+      #1;
+      f32 = p32_out_bits;
+      if (f32[RAW32-1:RAW32-8] !== 8'h00) begin
+        $display("FAIL: 256B seq exp=00 got=%h", f32[RAW32-1:RAW32-8]); fails++;
+      end else $display("PASS: 256B seq 0");
+      if (f32[RAW32-9:RAW32-12] !== 4'h0) begin
+        $display("FAIL: 256B fmt exp=0 got=%h", f32[RAW32-9:RAW32-12]); fails++;
+      end else $display("PASS: 256B fmt data");
+      if (f32[RAW32-13:RAW32-18] !== 6'd32) begin
+        $display("FAIL: 256B len exp=32 got=%0d", f32[RAW32-13:RAW32-18]); fails++;
+      end else $display("PASS: 256B len 32");
+      if (f32[FLIT32-1:RAW32] !== {(FLIT32-RAW32){1'b0}}) begin
+        $display("FAIL: 256B reserved pad nonzero"); fails++;
+      end else $display("PASS: 256B reserved pad zero");
+      if (p32_out_retry) begin
+        $display("FAIL: 256B retry on first flit"); fails++;
+      end
+      @(posedge clock); #1;
+      p32_out_ready = 1'b1;
+      @(posedge clock); #1;
+      p32_out_ready = 1'b0;
+      // unpack loopback
+      @(negedge clock);
+      u32_in_bits = f32; u32_in_valid = 1'b1;
+      @(posedge clock);
+      @(negedge clock);
+      u32_in_valid = 1'b0;
+      for (j = 0; j < 32; j = j + 1) begin
+        wait (u32_out_valid);
+        r32[j] = u32_out_bits;
+        if (j == 31 && !u32_out_last) begin
+          $display("FAIL: 256B out_last missing"); fails++;
+        end
+        @(posedge clock); #1;
+      end
+      repeat (2) @(posedge clock);
+      for (j = 0; j < 32; j = j + 1)
+        if (r32[j] !== w32[j]) begin
+          $display("FAIL: 256B word%0d exp=%h got=%h", j, w32[j], r32[j]); fails++;
+        end
+      if (fails == 0) $display("PASS: 256B loopback payload match");
+      if (u32_err_cnt !== 0) begin
+        $display("FAIL: 256B err_cnt exp=0 got=%0d", u32_err_cnt); fails++;
+      end else $display("PASS: 256B err_cnt 0");
+      // corrupt -> nack
+      @(negedge clock);
+      u32_in_bits = f32 ^ 1; u32_in_valid = 1'b1;
+      @(posedge clock);
+      @(negedge clock);
+      u32_in_valid = 1'b0;
+      repeat (3) @(posedge clock); #1;
+      if (u32_err_cnt !== 32'd1) begin
+        $display("FAIL: 256B corrupt err exp=1 got=%0d", u32_err_cnt); fails++;
+      end else $display("PASS: 256B corrupt detected (err_cnt=1)");
+      if (u32_out_valid) begin
+        $display("FAIL: 256B words on bad CRC"); fails++;
+      end else $display("PASS: 256B no words on bad CRC");
+      // slicer/reasm round-trip: 9x256b beats, last flag, identical flit.
+      // Step the slicer one beat per iteration (ready low except the
+      // transfer posedge) so no beat is missed between loop iterations.
+      @(negedge clock);
+      s32_in_bits = f32; s32_in_valid = 1'b1;
+      @(posedge clock);
+      @(negedge clock);
+      s32_in_valid = 1'b0;
+      for (j = 0; j < 9; j = j + 1) begin
+        wait (s32_out_valid);
+        @(negedge clock);
+        r32_in_bits = s32_out_bits; r32_in_valid = 1'b1;
+        s32_out_ready = 1'b1;
+        if (j == 8 && !s32_out_last) begin
+          $display("FAIL: 256B slice last missing"); fails++;
+        end
+        @(posedge clock);
+        @(negedge clock);
+        r32_in_valid = 1'b0;
+        s32_out_ready = 1'b0;
+      end
+      repeat (2) @(posedge clock); #1;
+      if (!r32_out_valid) begin
+        $display("FAIL: 256B reasm no flit"); fails++;
+      end else if (r32_out_bits !== f32) begin
+        $display("FAIL: 256B slicer/reasm mismatch"); fails++;
+      end else $display("PASS: 256B slicer/reasm 9x256b round-trip");
+      if (r32_overflow) begin
+        $display("FAIL: 256B reasm overflow"); fails++;
+      end
+      // retry identical + link_error latch on 32-word packer
+      f32_retry = f32;
+      @(negedge clock);
+      nack32_in = 1'b1;
+      @(posedge clock);
+      @(negedge clock);
+      nack32_in = 1'b0;
+      wait (p32_out_valid && p32_out_retry);
+      #1;
+      if (p32_out_bits !== f32_retry) begin
+        $display("FAIL: 256B retry bits differ"); fails++;
+      end else $display("PASS: 256B retry retransmits identical flit");
+      @(posedge clock); #1;
+      p32_out_ready = 1'b1;
+      @(posedge clock); #1;
+      p32_out_ready = 1'b0;
+      if (link32_error) begin
+        $display("FAIL: 256B unexpected link_error"); fails++;
+      end else $display("PASS: 256B no link_error");
     end
 
     if (fails == 0) $display("FLIT PASS");

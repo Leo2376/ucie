@@ -65,7 +65,7 @@ module sidebandSwitcher_1(
     .io_node_to_node_valid(outer_node_to_layer_below_subswitch_io_node_to_node_valid),
     .io_node_to_node_bits(outer_node_to_layer_below_subswitch_io_node_to_node_bits)
   );
-  sidebandOneInTwoOutSwitch_2 outer_node_to_layer_above_subswitch (
+  sidebandOneInTwoOutSwitch_2 #(.ROUTE_TRAIN(1)) outer_node_to_layer_above_subswitch (
     .io_outer_node_to_layer_ready(outer_node_to_layer_above_subswitch_io_outer_node_to_layer_ready),
     .io_outer_node_to_layer_valid(outer_node_to_layer_above_subswitch_io_outer_node_to_layer_valid),
     .io_outer_node_to_layer_bits(outer_node_to_layer_above_subswitch_io_outer_node_to_layer_bits),

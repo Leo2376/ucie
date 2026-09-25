@@ -1,15 +1,18 @@
 // ucie_top: single-die UCIe 1.1 link.
 //
 // USE_FLIT=0 (default): legacy 64b-word datapath end to end.
-// USE_FLIT=1: flit-mode datapath — 64b host words are packed into 512b
-//   streaming flits (CRC-32 + seq + replay, see docs/flit_spec.md) and
-//   carried over a 128b internal RDI to the 16b MB AFE. Host and AFE
-//   pinouts are unchanged in both modes.
+// USE_FLIT=1: flit-mode datapath — host words are packed into streaming
+//   flits (CRC-32 + seq + replay, see docs/flit_spec.md) and carried
+//   over RDI to the MB AFE. WORDS_PER_FLIT=7 (default): 512b flits,
+//   128b RDI beats. WORDS_PER_FLIT=32: 256B datapath, 2304b padded
+//   flits (32x64b + hdr/CRC + reserved), 256b RDI beats, NLANES=16
+//   target. Host and AFE pinouts widen with NLANES/RDI accordingly.
 module ucie_top #(
   parameter USE_FLIT = 0,
   parameter NLANES = 1,
   parameter REMOTE_ACK = 0,
-  parameter GATE_ACTIVE = 0
+  parameter GATE_ACTIVE = 0,
+  parameter int WORDS_PER_FLIT = 7
 ) (
   input         HCLK,
   input         HRESETn,
@@ -83,7 +86,9 @@ module ucie_top #(
   wire  protocol_io_fault;
   wire  protocol_io_soft_reset;
   wire  hreset;
-  localparam RDI_W = (USE_FLIT != 0) ? 128 : 64;
+  // RDI beat: 64b legacy, 128b (512b flits) or 256b (256B flits).
+  localparam RDI_W = (USE_FLIT == 0) ? 64 :
+                     (WORDS_PER_FLIT == 32 ? 256 : 128);
   wire  d2dadapter_clock;
   wire  d2dadapter_reset;
   wire  d2dadapter_io_fdi_lpData_ready;
@@ -205,7 +210,7 @@ module ucie_top #(
     .io_fdi_lpConfigCredit(protocol_io_fdi_lpConfigCredit)
   );
   d2d_adapt #(.USE_FLIT(USE_FLIT), .RDI_W(RDI_W), .REMOTE_ACK(REMOTE_ACK),
-              .GATE_ACTIVE(GATE_ACTIVE)) d2dadapter (
+              .GATE_ACTIVE(GATE_ACTIVE), .WORDS_PER_FLIT(WORDS_PER_FLIT)) d2dadapter (
     .clock(d2dadapter_clock),
     .reset(d2dadapter_reset),
     .io_fdi_lpData_ready(d2dadapter_io_fdi_lpData_ready),
@@ -249,7 +254,7 @@ module ucie_top #(
     .io_flit_link_error(d2d_flit_link_error),
     .io_flit_overflow(d2d_flit_overflow)
   );
-  log_phy #(.RDI_W(RDI_W), .NLANES(NLANES)) logPhy (
+  log_phy #(.RDI_W(RDI_W), .NLANES(NLANES), .WORDS_PER_FLIT(WORDS_PER_FLIT)) logPhy (
     .clock(logPhy_clock),
     .reset(logPhy_reset),
     .io_rdi_lpData_ready(logPhy_io_rdi_lpData_ready),

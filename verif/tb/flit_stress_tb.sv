@@ -149,6 +149,129 @@ module flit_stress_tb;
                dut.d2dadapter.gen_flit.u_mb_flit.u_pack.timer);
   end
 
+  // ---- 256B datapath DUT (WORDS_PER_FLIT=32, NLANES=16, 256b RDI) ----
+  // Same loopback stress at the wide width: 32-word flits over 9x256b
+  // beats, 9 lane cycles/flit at NLANES=16.
+  localparam int NFLITS2 = 4;
+  localparam int W2 = 32;
+  reg        HSEL2 = 1'b0;
+  reg [31:0] HADDR2 = 32'h0;
+  reg [63:0] HWDATA2 = 64'h0;
+  reg        HWRITE2 = 1'b0;
+  reg [1:0]  HTRANS2 = 2'b00;
+  wire [63:0] HRDATA2;
+  wire        HREADYOUT2;
+  wire        HRESP2;
+  reg        tb2_irdy = 1'b1;
+  reg        tb2_rdy2rcv = 1'b1;
+  wire [3:0] tb2_state;
+  wire [63:0] tb2_pldata;
+  wire        tb2_plvalid;
+  wire tb2_stallAck;
+  wire tb2_mbTxValid, tb2_mbRxRdy, tb2_mbRxEn, tb2_sbTx, tb2_sbTxClk, tb2_sbRxEn;
+  wire [255:0] tb2_mbTxBits;
+  wire [2:0] tb2_mbFreq;
+  reg sb2_rx = 1'b0;
+  reg sb2_rxc = 1'b0;
+  wire        mb2_rx_valid;
+  wire [255:0] mb2_rx_bits;
+
+  ucie_top #(.USE_FLIT(1), .WORDS_PER_FLIT(W2), .NLANES(16)) dut256 (
+    .HCLK(HCLK),
+    .HRESETn(HRESETn),
+    .HSEL(HSEL2),
+    .HADDR(HADDR2),
+    .HWDATA(HWDATA2),
+    .HWRITE(HWRITE2),
+    .HSIZE(HSIZE),
+    .HBURST(HBURST),
+    .HTRANS(HTRANS2),
+    .HREADY(1'b1),
+    .HRDATA(HRDATA2),
+    .HREADYOUT(HREADYOUT2),
+    .HRESP(HRESP2),
+    .io_TLlpData_irdy(tb2_irdy),
+    .io_TLplStateStatus(tb2_state),
+    .io_TLplData_bits(tb2_pldata),
+    .io_TLplData_valid(tb2_plvalid),
+    .io_TLready_to_rcv(tb2_rdy2rcv),
+    .io_fault(tb_fault),
+    .io_soft_reset(tb_soft_rst),
+    .io_fdi_lpStallAck(tb2_stallAck),
+    .io_mbAfe_fifoParams_clk(HCLK),
+    .io_mbAfe_fifoParams_reset(~HRESETn),
+    .io_mbAfe_txData_ready(1'b1),
+    .io_mbAfe_txData_valid(tb2_mbTxValid),
+    .io_mbAfe_txData_bits_0(tb2_mbTxBits),
+    .io_mbAfe_rxData_ready(tb2_mbRxRdy),
+    .io_mbAfe_rxData_valid(mb2_rx_valid),
+    .io_mbAfe_rxData_bits_0(mb2_rx_bits),
+    .io_mbAfe_txFreqSel(tb2_mbFreq),
+    .io_mbAfe_rxEn(tb2_mbRxEn),
+    .io_mbAfe_pllLock(1'b1),
+    .io_sbAfe_fifoParams_clk(HCLK),
+    .io_sbAfe_fifoParams_reset(~HRESETn),
+    .io_sbAfe_txData(tb2_sbTx),
+    .io_sbAfe_txClock(tb2_sbTxClk),
+    .io_sbAfe_rxData(sb2_rx),
+    .io_sbAfe_rxClock(sb2_rxc),
+    .io_sbAfe_rxEn(tb2_sbRxEn),
+    .io_sbAfe_pllLock(1'b1),
+    .o_flit_link_error(),
+    .o_flit_overflow()
+  );
+
+  // 256b loopback with single-beat error injection (flip LSB once).
+  reg lb2_valid = 1'b0;
+  reg [255:0] lb2_bits = 256'h0;
+  reg inject2_arm = 1'b0;
+  reg inject2_done = 1'b0;
+  always @(posedge HCLK) begin
+    lb2_valid <= tb2_mbTxValid;
+    if (inject2_arm && !inject2_done && tb2_mbTxValid) begin
+      lb2_bits <= tb2_mbTxBits ^ 256'h1;
+      inject2_done <= 1'b1;
+    end else begin
+      lb2_bits <= tb2_mbTxBits;
+    end
+  end
+  assign mb2_rx_valid = lb2_valid;
+  assign mb2_rx_bits = lb2_bits;
+
+  reg [63:0] exp2_q [0:NFLITS2*32-1];
+  reg [63:0] got2_q [0:NFLITS2*32-1];
+  integer exp2_n = 0;
+  integer got2_n = 0;
+  reg collect2_done = 1'b0;
+  reg prev2_v = 1'b0;
+  reg [63:0] prev2_d = 64'h0;
+  always @(posedge HCLK) begin
+    #1;
+    if (HRESETn && !collect2_done &&
+        tb2_plvalid === 1'b1 && (prev2_v !== 1'b1 || tb2_pldata !== prev2_d)) begin
+      if (got2_n < NFLITS2*32) begin
+        got2_q[got2_n] = tb2_pldata;
+        got2_n = got2_n + 1;
+      end
+    end
+    prev2_v <= tb2_plvalid;
+    prev2_d <= tb2_pldata;
+  end
+
+  task automatic ahb_push2(input [63:0] word);
+    begin
+      @(negedge HCLK);
+      HSEL2 = 1'b1; HWRITE2 = 1'b1; HTRANS2 = 2'b10; HWDATA2 = word;
+      #1;
+      while (HREADYOUT2 !== 1'b1) @(negedge HCLK);
+      @(posedge HCLK);
+      @(negedge HCLK);
+      HSEL2 = 1'b0; HWRITE2 = 1'b0; HTRANS2 = 2'b00;
+      exp2_q[exp2_n] = word;
+      exp2_n = exp2_n + 1;
+    end
+  endtask
+
   integer fails = 0;
   reg [63:0] exp_q [0:NFLITS*7-1];
   reg [63:0] got_q [0:NFLITS*7-1];
@@ -263,6 +386,61 @@ module flit_stress_tb;
     if (dut.d2dadapter.gen_flit.u_mb_flit.u_reasm.overflow) begin
       $display("FAIL: reasm overflow");
       fails = fails + 1;
+    end else $display("PASS: no reasm overflow (7-word)");
+
+    // ---- 256B run: 4 flits x 32 words over NLANES=16 loopback ----
+    begin
+      reg [63:0] lfsr2;
+      integer f2, w2, ii;
+      lfsr2 = 64'h9E37_79B9_7F4A_7C15;
+      for (f2 = 0; f2 < NFLITS2; f2 = f2 + 1) begin
+        if (f2 == 2) begin
+          inject2_arm = 1'b1;
+          inject2_done = 1'b0;
+        end
+        for (w2 = 0; w2 < 32; w2 = w2 + 1) begin
+          lfsr2 = lfsr2 ^ (lfsr2 >> 12);
+          lfsr2 = lfsr2 ^ (lfsr2 << 25);
+          lfsr2 = lfsr2 ^ (lfsr2 >> 27);
+          ahb_push2(lfsr2);
+        end
+        if (f2 == 2) begin
+          repeat (800) @(posedge HCLK);
+          inject2_arm = 1'b0;
+          if (!inject2_done) begin
+            $display("FAIL: 256B injection never fired");
+            fails = fails + 1;
+          end else $display("PASS: 256B error injected on flit 2");
+        end
+      end
+      for (ii = 0; ii < 40000 && got2_n < NFLITS2*32; ii = ii + 1) begin
+        @(posedge HCLK);
+      end
+      collect2_done = 1'b1;
+      if (got2_n !== NFLITS2*32) begin
+        $display("FAIL: 256B got %0d/%0d words", got2_n, NFLITS2*32);
+        fails = fails + 1;
+      end else begin
+        for (ii = 0; ii < NFLITS2*32; ii = ii + 1)
+          if (got2_q[ii] !== exp2_q[ii]) begin
+            $display("FAIL: 256B word%0d exp=%h got=%h", ii, exp2_q[ii], got2_q[ii]);
+            fails = fails + 1;
+          end
+        if (fails == 0) $display("PASS: 256B scoreboard match (%0d words)", got2_n);
+      end
+      if (dut256.d2dadapter.gen_flit.u_mb_flit.u_unpack.err_cnt !== 32'd1) begin
+        $display("FAIL: 256B unpack err_cnt exp=1 got=%0d",
+                 dut256.d2dadapter.gen_flit.u_mb_flit.u_unpack.err_cnt);
+        fails = fails + 1;
+      end else $display("PASS: 256B corruption detected once (err_cnt=1)");
+      if (dut256.d2dadapter.gen_flit.u_mb_flit.io_link_error) begin
+        $display("FAIL: 256B link_error set");
+        fails = fails + 1;
+      end else $display("PASS: 256B no link_error (retry recovered)");
+      if (dut256.d2dadapter.gen_flit.u_mb_flit.u_reasm.overflow) begin
+        $display("FAIL: 256B reasm overflow");
+        fails = fails + 1;
+      end else $display("PASS: 256B no reasm overflow");
     end
 
     if (fails == 0) $display("FLITSTRESS PASS");
@@ -300,10 +478,10 @@ module flit_stress_tb;
     $display("ENDSTATE3 slice_bl=%0d slice_idx=%0d rmap_txhave=%b rmap_txout=%0d rmap_rxcnt=%0d rmap_rxleft=%0d reasm_beats=%0d reasm_pv=%b up_drain=%b up_rcnt=%0d up_ackv=%b up_nack=%b",
              dut.d2dadapter.gen_flit.u_mb_flit.u_slice.beats_left,
              dut.d2dadapter.gen_flit.u_mb_flit.u_slice.idx,
-             dut.logPhy.rdiDataMapper.gen_flit128.tx_have,
-             dut.logPhy.rdiDataMapper.gen_flit128.tx_out,
-             dut.logPhy.rdiDataMapper.gen_flit128.rx_cnt,
-             dut.logPhy.rdiDataMapper.gen_flit128.rx_left,
+              dut.logPhy.rdiDataMapper.gen_flit.tx_have,
+              dut.logPhy.rdiDataMapper.gen_flit.tx_out,
+              dut.logPhy.rdiDataMapper.gen_flit.rx_cnt,
+              dut.logPhy.rdiDataMapper.gen_flit.rx_left,
              dut.d2dadapter.gen_flit.u_mb_flit.u_reasm.beats,
              dut.d2dadapter.gen_flit.u_mb_flit.u_reasm.pending_vld,
              dut.d2dadapter.gen_flit.u_mb_flit.u_unpack.draining,

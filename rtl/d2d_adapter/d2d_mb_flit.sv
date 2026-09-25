@@ -14,9 +14,14 @@
 // (all existing TBs). =1: cross-die mode, pack consumes the decoded
 // partner ack/nack from the sideband and the local unpack output goes
 // to the sideband encoder (docs/ack_spec.md).
+// WORDS_PER_FLIT=7 (default): 512b flits, 128b RDI beats.
+// WORDS_PER_FLIT=32: 256B datapath — 32x64b payload + hdr/CRC padded to
+// 2304b (9x256b RDI beats, 192b reserved zeros outside the CRC).
 module d2d_mb_flit #(
   parameter GATE_ACTIVE = 0,
-  parameter REMOTE_ACK = 0
+  parameter REMOTE_ACK = 0,
+  parameter int WORDS_PER_FLIT = 7,
+  parameter int RDI_W = 128
 ) (
   input         clock,
   input         reset,
@@ -27,13 +32,13 @@ module d2d_mb_flit #(
   output        io_fdi_pl_trdy,
   output        io_fdi_pl_valid,
   output [63:0] io_fdi_pl_data,
-  // RDI: 128b beats
+  // RDI: beats of RDI_W (128b x4 for 512b flits, 256b x9 for 256B)
   output        io_rdi_lp_irdy,
   output        io_rdi_lp_valid,
-  output [127:0] io_rdi_lp_data,
+  output [RDI_W-1:0] io_rdi_lp_data,
   input         io_rdi_pl_trdy,
   input         io_rdi_pl_valid,
-  input  [127:0] io_rdi_pl_data,
+  input  [RDI_W-1:0] io_rdi_pl_data,
   input  [3:0]  io_d2d_state,
   input         io_mainband_stallreq,
   output        io_mainband_stalldone,
@@ -52,12 +57,16 @@ module d2d_mb_flit #(
   wire active = (io_d2d_state == 4'h1);
   // Link gate: when enabled, block both directions until ACTIVE.
   wire link_gate = (GATE_ACTIVE != 0) && !active;
+  // Padded flit width (multiple of the RDI beat).
+  localparam int RAW_W = WORDS_PER_FLIT * 64 + 64;
+  localparam int BEATS = (RAW_W + RDI_W - 1) / RDI_W;
+  localparam int FLIT_W = BEATS * RDI_W;
 
   // ---- TX: FDI words -> pack -> slice -> RDI beats ----
   wire pack_in_ready, pack_out_valid, pack_out_retry, pack_link_error;
-  wire [511:0] pack_out_bits;
+  wire [FLIT_W-1:0] pack_out_bits;
   wire slice_in_ready, slice_out_valid, slice_out_last;
-  wire [127:0] slice_out_bits;
+  wire [RDI_W-1:0] slice_out_bits;
   // RX feedback: local loopback (REMOTE_ACK=0) or cross-die sideband.
   wire up_ack_valid, up_nack;
   wire [7:0] up_ack_seq;
@@ -68,7 +77,7 @@ module d2d_mb_flit #(
   assign io_ack_tx_seq = up_ack_seq;
   assign io_nack_tx = up_nack;
 
-  flit_pack u_pack (
+  flit_pack #(.WORDS_PER_FLIT(WORDS_PER_FLIT), .RDI_BEAT_W(RDI_W)) u_pack (
     .clock(clock), .reset(reset),
     .in_ready(pack_in_ready),
     .in_valid(io_fdi_lp_valid & io_fdi_lp_irdy & ~stalled & ~link_gate),
@@ -81,7 +90,7 @@ module d2d_mb_flit #(
     .link_error(pack_link_error), .cur_seq()
   );
 
-  flit_slicer u_slice (
+  flit_slicer #(.FLIT_W(FLIT_W), .BEAT_W(RDI_W)) u_slice (
     .clock(clock), .reset(reset),
     .in_ready(slice_in_ready),
     .in_valid(pack_out_valid),
@@ -93,12 +102,12 @@ module d2d_mb_flit #(
 
   // ---- RX: RDI beats -> reasm -> unpack -> FDI words ----
   wire reasm_out_valid;
-  wire [511:0] reasm_out_bits;
+  wire [FLIT_W-1:0] reasm_out_bits;
   wire up_out_valid, up_out_last;
   wire [63:0] up_out_bits;
   wire [31:0] up_err_cnt;
 
-  flit_reasm u_reasm (
+  flit_reasm #(.FLIT_W(FLIT_W), .BEAT_W(RDI_W)) u_reasm (
     .clock(clock), .reset(reset),
     .in_ready(),
     .in_valid(io_rdi_pl_valid),
@@ -112,7 +121,7 @@ module d2d_mb_flit #(
   // (combinational valid/ready pair, no skid reg, no loss).
   wire up_in_ready;
 
-  flit_unpack u_unpack (
+  flit_unpack #(.WORDS_PER_FLIT(WORDS_PER_FLIT), .RDI_BEAT_W(RDI_W)) u_unpack (
     .clock(clock), .reset(reset),
     .in_ready(up_in_ready),
     .in_valid(reasm_out_valid),
