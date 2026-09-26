@@ -13,7 +13,7 @@ AHBCFGFILELIST := filelist_ahbcfg.f
 ACKXCHGFILELIST := filelist_ackxchg.f
 FLITDUALFILELIST := filelist_flitdual.f
 
-.PHONY: lint sim sniff link flit flit_path flit_stress link_mgmt lane_pll ahb_cfg ack_xchg flit_dual formal regress clean
+.PHONY: lint sim sniff link flit flit_path flit_stress link_mgmt lane_pll ahb_cfg ack_xchg flit_dual formal d2d_dual256 regress clean
 
 lint:
 	verilator --lint-only -f $(FILELIST) --top-module $(TOP) --timing
@@ -87,6 +87,12 @@ d2d_dual:
 	verilator --binary --timing -j 0 -f filelist_d2ddual.f --top-module d2d_dual_tb \
 	  -Mdir obj_dir_d2ddual -o simv_d2ddual --build -Wno-TIMESCALEMOD
 	./obj_dir_d2ddual/simv_d2ddual
+
+d2d_dual256:
+	verilator --binary --timing -j 0 -f filelist_d2ddual.f --top-module d2d_dual_tb \
+	  -GWPF=32 -GRDIW=256 \
+	  -Mdir obj_dir_d2ddual256 -o simv_d2ddual256 --build -Wno-TIMESCALEMOD
+	./obj_dir_d2ddual256/simv_d2ddual256
 
 sbchan_fwd:
 	verilator --binary --timing -j 0 -f filelist_sbchanfwd.f --top-module sbchan_fwd_tb \

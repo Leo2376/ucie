@@ -71,6 +71,14 @@ the dual TB drains it (overflow is status-only).
 * `ack_xchg_tb`: two `d2d_sb` cross-connected at RDI 32b (no training
   gates in `d2d_sb`): ACK seq both directions, NACK, back-to-back
   order, mgmt priority, decode quiet (`rcv==0`).
+* `d2d_dual_tb` production phase (`WPF=7` and `WPF=32` via
+  `d2d_dual256`): 8 flits each way back-to-back over
+  the 300-cycle sideband with targeted RDI corrupts (flits 2, 5 per
+  direction: CRC error -> NACK -> retry) and an 800-cycle sideband
+  drop window during flit 4 per direction (lost ACKs -> timeout
+  retry). Per-flit retire barriers keep every fault window on its
+  target flit; exact data, `err_cnt==2` per side, retries fired, no
+  `link_error`/`overflow`.
 * `flit_dual_tb`: two `ucie_top` (`USE_FLIT=1, REMOTE_ACK=1`), crossed
   MB + SB AFEs, real training; A->B and B->A flits match; MB error
   injection still delivers via retry.

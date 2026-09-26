@@ -11,7 +11,8 @@ ahb_cfg AHBCFG
 ack_xchg ACKXCHG
 xcross XCROSS
 linkinit_xchg LINKINITXCHG
-d2d_dual D2DDUAL
+d2d_dual D2DDUAL PASS WPF=7
+d2d_dual256 D2DDUAL PASS WPF=32
 formal FORMAL_OK
 link LINKBRINGUP
 flit_dual FLITDUAL

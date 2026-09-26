@@ -104,6 +104,45 @@ module lane_pll_tb;
     afe_rx_bits = lb_bits;
   end
 
+  // ---- D. 16-lane loopback (standard-package target width) ----
+  reg lane16_tx_vld = 0;
+  reg [255:0] lane16_tx_bits = 256'h0;
+  wire lane16_tx_rdy;
+  wire afe16_tx_vld;
+  wire [255:0] afe16_tx_bits;
+  reg afe16_rx_vld = 0;
+  reg [255:0] afe16_rx_bits = 256'h0;
+  wire afe16_rx_rdy;
+  wire lane16_rx_vld;
+  wire [255:0] lane16_rx_bits;
+
+  Lanes #(.NLANES(16)) dut_lanes16 (
+    .clock(clock), .reset(reset),
+    .io_mainbandIo_fifoParams_clk(fclk),
+    .io_mainbandIo_fifoParams_reset(reset),
+    .io_mainbandIo_txData_ready(1'b1),
+    .io_mainbandIo_txData_valid(afe16_tx_vld),
+    .io_mainbandIo_txData_bits_0(afe16_tx_bits),
+    .io_mainbandIo_rxData_ready(afe16_rx_rdy),
+    .io_mainbandIo_rxData_valid(afe16_rx_vld),
+    .io_mainbandIo_rxData_bits_0(afe16_rx_bits),
+    .io_mainbandLaneIO_txData_ready(lane16_tx_rdy),
+    .io_mainbandLaneIO_txData_valid(lane16_tx_vld),
+    .io_mainbandLaneIO_txData_bits(lane16_tx_bits),
+    .io_mainbandLaneIO_rxData_valid(lane16_rx_vld),
+    .io_mainbandLaneIO_rxData_bits(lane16_rx_bits)
+  );
+
+  reg [255:0] lb16_bits = 0; reg lb16_vld = 0;
+  always @(posedge fclk) begin
+    lb16_vld <= afe16_tx_vld;
+    lb16_bits <= afe16_tx_bits;
+  end
+  always @(negedge fclk) begin
+    afe16_rx_vld = lb16_vld;
+    afe16_rx_bits = lb16_bits;
+  end
+
   initial begin
     reset = 1; HRESETn = 0;
     repeat (6) @(posedge clock);
@@ -177,6 +216,33 @@ module lane_pll_tb;
       if (words < 4) begin
         $display("FAIL: only %0d/4 words completed", words); fails++;
       end else $display("PASS: rdi 4 words completed last=%h", c_pl_bits);
+    end
+
+    // D. push 4 lockstep vectors across 16 lanes, expect identical return.
+    begin
+      reg [255:0] vec16 [0:3];
+      reg [255:0] got16;
+      integer i, k, n;
+      vec16[0] = 256'h1111_2222_3333_4444_5555_6666_7777_8888_DEAD_BEEF_CAFE_F00D_0123_4567_89AB_CDEF;
+      vec16[1] = 256'hFFFF_0000_FFFF_0000_0000_FFFF_0000_FFFF_A5A5_A5A5_5A5A_5A5A_1357_9BDF_2468_ACE0;
+      vec16[2] = 256'h0000_0000_0000_0001_FFFF_FFFF_FFFF_FFFF_8000_0000_0000_0000_0000_0000_0000_0000;
+      vec16[3] = 256'h7FFF_FFFF_FFFF_FFFF_1234_5678_9ABC_DEF0_0FED_CBA9_8765_4321_00FF_00FF_FF00_FF00;
+      for (i = 0; i < 4; i = i + 1) begin
+        @(negedge clock);
+        lane16_tx_bits = vec16[i]; lane16_tx_vld = 1'b1;
+        @(posedge clock); @(negedge clock); lane16_tx_vld = 1'b0;
+        n = 0; got16 = 256'hx;
+        for (k = 0; k < 8000 && n < 1; k = k + 1) begin
+          @(posedge clock); #1;
+          if (lane16_rx_vld === 1'b1) begin got16 = lane16_rx_bits; n = 1; end
+        end
+        if (n !== 1) begin
+          $display("FAIL: lane16 %0d no return", i); fails++;
+        end else if (got16 !== vec16[i]) begin
+          $display("FAIL: lane16 %0d exp=%h got=%h", i, vec16[i], got16); fails++;
+        end else $display("PASS: lane16 word %0d loopback", i);
+        repeat (10) @(posedge clock);
+      end
     end
 
     if (fails == 0) $display("LANEPLL PASS");

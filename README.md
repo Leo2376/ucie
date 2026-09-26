@@ -204,10 +204,17 @@ pulse. No link partner is modeled yet, so no AFE traffic is expected.
   reasm + `lnk_init` + `ahb_fdi` asserts under `--assert`) for
   CRC/seq-retry/FSM coverage; regress 15/15 incl. `formal`
 
+* [x] Cross-die ACK/NACK hardening: `d2d_dual_tb` production phase
+  at both widths (`d2d_dual256`: `WPF=32`, 256b RDI — 8 flits each way
+  back-to-back over the 300-cycle sideband with targeted RDI corrupts
+  + 800-cycle ACK-drop windows: exact data, `err_cnt==2`/side,
+  retries fired, no `link_error`/`overflow`) and `lane_pll_tb`
+  `NLANES=16` 256b loopback (4 vectors); regress 16/16 incl. `formal`
+
 ## Next steps
 
 Ordered, smallest-first.
 
-1. **Cross-die ACK/NACK hardening**: sideband ACK transport for
-   production traffic (Phase 5 covers bring-up-time paths); multi-lane
-   (`NLANES=16`) AFE validation in `lane_pll_tb`.
+None outstanding — all phases green. Follow-ups if needed: AXI
+bridge, `verif/formal` cover properties under a real formal tool,
+production sideband ACK load at 256B width.

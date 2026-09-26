@@ -25,7 +25,8 @@ run ahb_cfg AHBCFG make -s ahb_cfg
 run ack_xchg ACKXCHG make -s ack_xchg
 run xcross XCROSS make -s xcross
 run linkinit_xchg LINKINITXCHG make -s linkinit_xchg
-run d2d_dual D2DDUAL make -s d2d_dual
+run d2d_dual "D2DDUAL PASS WPF=7" make -s d2d_dual
+run d2d_dual256 "D2DDUAL PASS WPF=32" make -s d2d_dual256
 run formal FORMAL_OK make -s formal
 # link bring-up last (30M+ cycle budget)
 run link LINKBRINGUP make -s link
